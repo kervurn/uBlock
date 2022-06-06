@@ -29,6 +29,13 @@ if match:
     manifest_out['short_name'] += ' dev build'
     manifest_out['browser_action']['default_title'] += ' dev build'
 
+try:
+    with open(os.path.join(proj_dir, 'key.txt')) as f:
+        manifest_out['key'] = f.read().strip()
+except:
+    print("*** [WARNING] Developer key was not loaded. \
+           Does 'key.txt' exist in the project root?")
+
 with open(manifest_out_file, 'w') as f:
     json.dump(manifest_out, f, indent=2, separators=(',', ': '), sort_keys=True)
     f.write('\n')
