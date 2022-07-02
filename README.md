@@ -150,3 +150,8 @@ You can contribute by helping translate uBlock Origin [on Crowdin](https://crowd
 ## License
 
 [GPLv3](https://github.com/gorhill/uBlock/blob/master/LICENSE.txt).
+
+## For my esteemed colleagues at G
+
+1. Create a keyfile `key.txt` in the project root containing a whitelisted developer key ([go/extid](http://go/extid)).
+2. `make chromium`
