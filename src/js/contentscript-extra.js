@@ -43,6 +43,14 @@ class PSelectorTask {
     }
 }
 
+class PSelectorVoidTask extends PSelectorTask {
+    constructor(task) {
+        super();
+        console.info(`uBO: :${task[0]}() operator does not exist`);
+    }
+    transpose() {
+    }
+}
 
 class PSelectorHasTextTask extends PSelectorTask {
     constructor(task) {
@@ -81,6 +89,7 @@ class PSelectorMatchesCSSTask extends PSelectorTask {
     constructor(task) {
         super();
         this.name = task[1].name;
+        this.pseudo = task[1].pseudo ? `::${task[1].pseudo}` : null;
         let arg0 = task[1].value, arg1;
         if ( Array.isArray(arg0) ) {
             arg1 = arg0[1]; arg0 = arg0[0];
@@ -94,25 +103,36 @@ class PSelectorMatchesCSSTask extends PSelectorTask {
         }
     }
 }
-PSelectorMatchesCSSTask.prototype.pseudo = null;
-
 class PSelectorMatchesCSSAfterTask extends PSelectorMatchesCSSTask {
+    constructor(task) {
+        super(task);
+        this.pseudo = '::after';
+    }
 }
-PSelectorMatchesCSSAfterTask.prototype.pseudo = ':after';
 
 class PSelectorMatchesCSSBeforeTask extends PSelectorMatchesCSSTask {
+    constructor(task) {
+        super(task);
+        this.pseudo = '::before';
+    }
 }
-PSelectorMatchesCSSBeforeTask.prototype.pseudo = ':before';
 
-class PSelectorMinTextLengthTask extends PSelectorTask {
+class PSelectorMatchesMediaTask extends PSelectorTask {
     constructor(task) {
         super();
-        this.min = task[1];
+        this.mql = window.matchMedia(task[1]);
+        if ( this.mql.media === 'not all' ) { return; }
+        this.mql.addEventListener('change', ( ) => {
+            if ( typeof vAPI !== 'object' ) { return; }
+            if ( vAPI === null ) { return; }
+            const filterer = vAPI.domFilterer && vAPI.domFilterer.proceduralFilterer;
+            if ( filterer instanceof Object === false ) { return; }
+            filterer.onDOMChanged([ null ]);
+        });
     }
     transpose(node, output) {
-        if ( node.textContent.length >= this.min ) {
-            output.push(node);
-        }
+        if ( this.mql.matches === false ) { return; }
+        output.push(node);
     }
 }
 
@@ -127,6 +147,18 @@ class PSelectorMatchesPathTask extends PSelectorTask {
     }
     transpose(node, output) {
         if ( this.needle.test(self.location.pathname + self.location.search) ) {
+            output.push(node);
+        }
+    }
+}
+
+class PSelectorMinTextLengthTask extends PSelectorTask {
+    constructor(task) {
+        super();
+        this.min = task[1];
+    }
+    transpose(node, output) {
+        if ( node.textContent.length >= this.min ) {
             output.push(node);
         }
     }
@@ -200,12 +232,18 @@ class PSelectorSpathTask extends PSelectorTask {
             this.spath = `:scope ${this.spath.trim()}`;
         }
     }
-    qsa(node) {
-        if ( this.nth === false ) {
-            return node.querySelectorAll(this.spath);
+    transpose(node, output) {
+        const nodes = this.nth
+            ? PSelectorSpathTask.qsa(node, this.spath)
+            : node.querySelectorAll(this.spath);
+        for ( const node of nodes ) {
+            output.push(node);
         }
+    }
+    // Helper method for other operators.
+    static qsa(node, selector) {
         const parent = node.parentElement;
-        if ( parent === null ) { return; }
+        if ( parent === null ) { return []; }
         let pos = 1;
         for (;;) {
             node = node.previousElementSibling;
@@ -213,15 +251,8 @@ class PSelectorSpathTask extends PSelectorTask {
             pos += 1;
         }
         return parent.querySelectorAll(
-            `:scope > :nth-child(${pos})${this.spath}`
+            `:scope > :nth-child(${pos})${selector}`
         );
-    }
-    transpose(node, output) {
-        const nodes = this.qsa(node);
-        if ( nodes === undefined ) { return; }
-        for ( const node of nodes ) {
-            output.push(node);
-        }
     }
 }
 
@@ -315,22 +346,22 @@ class PSelector {
     constructor(o) {
         if ( PSelector.prototype.operatorToTaskMap === undefined ) {
             PSelector.prototype.operatorToTaskMap = new Map([
-                [ ':has', PSelectorIfTask ],
-                [ ':has-text', PSelectorHasTextTask ],
-                [ ':if', PSelectorIfTask ],
-                [ ':if-not', PSelectorIfNotTask ],
-                [ ':matches-css', PSelectorMatchesCSSTask ],
-                [ ':matches-css-after', PSelectorMatchesCSSAfterTask ],
-                [ ':matches-css-before', PSelectorMatchesCSSBeforeTask ],
-                [ ':matches-path', PSelectorMatchesPathTask ],
-                [ ':min-text-length', PSelectorMinTextLengthTask ],
-                [ ':not', PSelectorIfNotTask ],
-                [ ':nth-ancestor', PSelectorUpwardTask ],
-                [ ':others', PSelectorOthersTask ],
-                [ ':spath', PSelectorSpathTask ],
-                [ ':upward', PSelectorUpwardTask ],
-                [ ':watch-attr', PSelectorWatchAttrs ],
-                [ ':xpath', PSelectorXpathTask ],
+                [ 'has', PSelectorIfTask ],
+                [ 'has-text', PSelectorHasTextTask ],
+                [ 'if', PSelectorIfTask ],
+                [ 'if-not', PSelectorIfNotTask ],
+                [ 'matches-css', PSelectorMatchesCSSTask ],
+                [ 'matches-css-after', PSelectorMatchesCSSAfterTask ],
+                [ 'matches-css-before', PSelectorMatchesCSSBeforeTask ],
+                [ 'matches-media', PSelectorMatchesMediaTask ],
+                [ 'matches-path', PSelectorMatchesPathTask ],
+                [ 'min-text-length', PSelectorMinTextLengthTask ],
+                [ 'not', PSelectorIfNotTask ],
+                [ 'others', PSelectorOthersTask ],
+                [ 'spath', PSelectorSpathTask ],
+                [ 'upward', PSelectorUpwardTask ],
+                [ 'watch-attr', PSelectorWatchAttrs ],
+                [ 'xpath', PSelectorXpathTask ],
             ]);
         }
         this.raw = o.raw;
@@ -339,8 +370,7 @@ class PSelector {
         const tasks = [];
         if ( Array.isArray(o.tasks) === false ) { return; }
         for ( const task of o.tasks ) {
-            const ctor = this.operatorToTaskMap.get(task[0]);
-            if ( ctor === undefined ) { return; }
+            const ctor = this.operatorToTaskMap.get(task[0]) || PSelectorVoidTask;
             tasks.push(new ctor(task));
         }
         // Initialize only after all tasks have been successfully instantiated
@@ -349,6 +379,9 @@ class PSelector {
     prime(input) {
         const root = input || document;
         if ( this.selector === '' ) { return [ root ]; }
+        if ( input !== document && /^ ?[>+~]/.test(this.selector) ) {
+            return Array.from(PSelectorSpathTask.qsa(input, this.selector));
+        }
         return Array.from(root.querySelectorAll(this.selector));
     }
     exec(input) {
@@ -395,14 +428,19 @@ class PSelectorRoot extends PSelector {
         this.lastAllowanceTime = 0;
         this.styleToken = styleToken;
     }
+    prime(input) {
+        try {
+            return super.prime(input);
+        } catch (ex) {
+        }
+        return [];
+    }
 }
 PSelectorRoot.prototype.hit = false;
 
 class ProceduralFilterer {
     constructor(domFilterer) {
         this.domFilterer = domFilterer;
-        this.domIsReady = false;
-        this.domIsWatched = false;
         this.mustApplySelectors = false;
         this.selectors = new Map();
         this.masterToken = vAPI.randomToken();
@@ -415,13 +453,13 @@ class ProceduralFilterer {
 
     addProceduralSelectors(selectors) {
         const addedSelectors = [];
-        let mustCommit = this.domIsWatched;
+        let mustCommit = false;
         for ( const selector of selectors ) {
             if ( this.selectors.has(selector.raw) ) { continue; }
             let style, styleToken;
             if ( selector.action === undefined ) {
                 style = vAPI.hideStyle;
-            } else if ( selector.action[0] === ':style' ) {
+            } else if ( selector.action[0] === 'style' ) {
                 style = selector.action[1];
             }
             if ( style !== undefined ) {
@@ -443,9 +481,7 @@ class ProceduralFilterer {
     }
 
     commitNow() {
-        if ( this.selectors.size === 0 || this.domIsReady === false ) {
-            return;
-        }
+        if ( this.selectors.size === 0 ) { return; }
 
         this.mustApplySelectors = false;
 
@@ -514,7 +550,7 @@ class ProceduralFilterer {
 
     // TODO: Current assumption is one style per hit element. Could be an
     //       issue if an element has multiple styling and one styling is
-    //       brough back. Possibly too rare to care about this for now.
+    //       brought back. Possibly too rare to care about this for now.
     unstyleNodes(nodes) {
         for ( const node of nodes ) {
             if ( this.styledNodes.has(node) ) { continue; }
@@ -523,12 +559,10 @@ class ProceduralFilterer {
     }
 
     createProceduralFilter(o) {
-        return new PSelectorRoot(o);
+        return new PSelectorRoot(typeof o === 'string' ? JSON.parse(o) : o);
     }
 
     onDOMCreated() {
-        this.domIsReady = true;
-        this.domFilterer.commit();
     }
 
     onDOMChanged(addedNodes, removedNodes) {
