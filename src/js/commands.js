@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2017-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -111,19 +111,15 @@ const relaxBlockingMode = (( ) => {
         if ( noReload ) { return; }
 
         // Reload: use a timer to coalesce bursts of reload commands.
-        let timer = reloadTimers.get(tab.id);
-        if ( timer !== undefined ) {
-            clearTimeout(timer);
-        }
-        timer = vAPI.setTimeout(
-            tabId => {
+        const timer = reloadTimers.get(tab.id) || (( ) => {
+            const t = vAPI.defer.create(tabId => {
                 reloadTimers.delete(tabId);
                 vAPI.tabs.reload(tabId);
-            },
-            547,
-            tab.id
-        );
-        reloadTimers.set(tab.id, timer);
+            });
+            reloadTimers.set(tab.id, t);
+            return t;
+        })();
+        timer.offon(547, tab.id);
     };
 })();
 

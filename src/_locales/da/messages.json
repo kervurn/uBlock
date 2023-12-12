@@ -275,13 +275,13 @@
     "message": "Version",
     "description": "Example of use: Version 1.26.4"
   },
-  "popup3pScriptFilterTip": {
-    "message": "↑: Fremhæv rækker med tredjeparts-scripts",
-    "description": "Tooltip shown when hovering small filtering widget in '3rd-party scripts' cell"
+  "popup3pScriptFilter": {
+    "message": "script",
+    "description": "Appears as an option to filter out firewall rows"
   },
-  "popup3pFrameFilterTip": {
-    "message": "↑: Fremhæv rækker med tredjeparts-rammer",
-    "description": "Tooltip shown when hovering small filtering widget in '3rd-party frames' cell"
+  "popup3pFrameFilter": {
+    "message": "frame",
+    "description": "Appears as an option to filter out firewall rows"
   },
   "pickerCreate": {
     "message": "Opret",
@@ -352,7 +352,7 @@
     "description": ""
   },
   "settingsAdvancedUserPrompt": {
-    "message": "Jeg er en erfarne bruger",
+    "message": "Jeg er en erfaren bruger",
     "description": "Checkbox to let user access advanced, technical features"
   },
   "settingsPrefetchingDisabledPrompt": {
@@ -469,35 +469,35 @@
   },
   "3pGroupDefault": {
     "message": "Integreret",
-    "description": "Header for the uBlock filters section in 'Filter lists pane'"
+    "description": "Filter lists section name"
   },
   "3pGroupAds": {
     "message": "Annoncer",
-    "description": "English: Ads"
+    "description": "Filter lists section name"
   },
   "3pGroupPrivacy": {
     "message": "Privatliv",
-    "description": "English: Privacy"
+    "description": "Filter lists section name"
   },
   "3pGroupMalware": {
-    "message": "Malware-domæner",
-    "description": "English: Malware domains"
+    "message": "Malware-beskyttelse, sikkerhed",
+    "description": "Filter lists section name"
   },
   "3pGroupAnnoyances": {
     "message": "Gener",
-    "description": "The header identifying the filter lists in the category 'annoyances'"
+    "description": "Filter lists section name"
   },
   "3pGroupMultipurpose": {
     "message": "Universalfiltre",
-    "description": "English: Multipurpose"
+    "description": "Filter lists section name"
   },
   "3pGroupRegions": {
     "message": "Regioner, sprog",
-    "description": "English: Regions, languages"
+    "description": "Filter lists section name"
   },
   "3pGroupCustom": {
     "message": "Tilpasset",
-    "description": "English: Custom"
+    "description": "Filter lists section name"
   },
   "3pImport": {
     "message": "Importér...",
@@ -531,13 +531,17 @@
     "message": "Ét filter pr. linje. Et filter kan være et almindeligt værtsnavn eller et EasyList-kompatibelt filter. Linjer startende med <code>!</code> ignoreres.",
     "description": "Short information about how to create custom filters"
   },
+  "1pTrustWarning": {
+    "message": "Tilføj ikke filtre fra ikke-betroede kilder.",
+    "description": "Warning against copy-pasting filters from random sources"
+  },
   "1pImport": {
-    "message": "Importér og tilføj",
-    "description": "English: Import and append"
+    "message": "Importer og tilføj…",
+    "description": "Button in the 'My filters' pane"
   },
   "1pExport": {
-    "message": "Eksportér",
-    "description": "English: Export"
+    "message": "Eksporter…",
+    "description": "Button in the 'My filters' pane"
   },
   "1pExportFilename": {
     "message": "mine-ublock-statiske-filtre_{{datetime}}.txt",
@@ -580,8 +584,8 @@
     "description": ""
   },
   "rulesExport": {
-    "message": "Eksportér til fil",
-    "description": ""
+    "message": "Eksporter til fil…",
+    "description": "Button in the 'My rules' pane"
   },
   "rulesDefaultFileName": {
     "message": "mine-ublock-dynamiske-regler_{{datetime}}.txt",
@@ -616,12 +620,12 @@
     "description": "A concise description of the 'Trusted sites' pane."
   },
   "whitelistImport": {
-    "message": "Importér og tilføj",
-    "description": "English: Import and append"
+    "message": "Importer og tilføj…",
+    "description": "Button in the 'Trusted sites' pane"
   },
   "whitelistExport": {
-    "message": "Eksportér",
-    "description": "English: Export"
+    "message": "Eksporter…",
+    "description": "Button in the 'Trusted sites' pane"
   },
   "whitelistExportFilename": {
     "message": "mine-ublock-betroede-websteder_{{datetime}}.txt",
@@ -951,6 +955,14 @@
     "message": "For at undgå at belaste frivillige med dubletanmeldelser, så tjek venligst, at problemet ikke allerede er anmeldt.",
     "description": "A paragraph in the filter issue reporter section"
   },
+  "supportS6P2S1": {
+    "message": "Filterlister opdateres dagligt. Sørg for, at problematikken ikke allerede er blevet behandlet i de seneste filterlister.",
+    "description": "A paragraph in the filter issue reporter section"
+  },
+  "supportS6P2S2": {
+    "message": "Bekræft problematikkens fortsatte eksistens efter genindlæsning af den problematiske webside.",
+    "description": "A paragraph in the filter issue reporter section"
+  },
   "supportS6URL": {
     "message": "Websideadressen",
     "description": "Label for the URL of the page"
@@ -1036,7 +1048,7 @@
     "description": "Shown in the About pane"
   },
   "aboutCDNsInfo": {
-    "message": "En tilfældigt valgt CDN vil blive brugt, når en filterliste kræver opdatering",
+    "message": "En tilfældigt valgt CDN anvendes, når en filterliste kræver opdatering.",
     "description": "Shown in the About pane"
   },
   "aboutBackupDataButton": {
@@ -1215,6 +1227,10 @@
     "message": "Tillad midlertidigt store medieelementer",
     "description": "A context menu entry, present when large media elements have been blocked on the current site"
   },
+  "contextMenuViewSource": {
+    "message": "Vis kildekode…",
+    "description": "A context menu entry, to view the source code of the target resource"
+  },
   "shortcutCapturePlaceholder": {
     "message": "Angiv en genvej",
     "description": "Placeholder string for input field used to capture a keyboard shortcut"
@@ -1258,6 +1274,14 @@
   "clickToLoad": {
     "message": "Klik for at indlæse",
     "description": "Message used in frame placeholders"
+  },
+  "linterMainReport": {
+    "message": "Fejl: {{count}}",
+    "description": "Summary of number of errors as reported by the linter "
+  },
+  "unprocessedRequestTooltip": {
+    "message": "Kunne ikke filtrere korrekt ved webbrowserstart. Genindlæs siden for at sikre korrekt filtrering.",
+    "description": "A warning which will appear in the popup panel if needed"
   },
   "dummy": {
     "message": "Denne post skal være den sidste",

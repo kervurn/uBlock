@@ -5,9 +5,11 @@
   },
   "browser_action": {
     "browser_style": false,
+    "default_area": "navbar",
     "default_icon": {
       "16": "img/icon_16.png",
-      "32": "img/icon_32.png"
+      "32": "img/icon_32.png",
+      "64": "img/icon_64.png"
     },
     "default_title": "uBlock Origin",
     "default_popup": "popup-fenix.html"
@@ -15,7 +17,10 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "uBlock0@raymondhill.net",
-      "strict_min_version": "68.0"
+      "strict_min_version": "78.0"
+    },
+    "gecko_android": {
+      "strict_min_version": "79.0"
     }
   },
   "commands": {
@@ -71,6 +76,18 @@
       ],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://github.com/uBlockOrigin/*",
+        "https://ublockorigin.github.io/*",
+        "https://*.reddit.com/r/uBlockOrigin/*"
+      ],
+      "js": [
+        "/js/scriptlets/updater.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "default_locale": "en",
@@ -89,6 +106,7 @@
     "open_in_tab": true
   },
   "permissions": [
+    "alarms",
     "dns",
     "menus",
     "privacy",

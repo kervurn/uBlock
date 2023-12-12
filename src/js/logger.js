@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2015-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -23,29 +23,29 @@
 
 /******************************************************************************/
 
+import { broadcastToAll } from './broadcast.js';
+
+/******************************************************************************/
+
 let buffer = null;
 let lastReadTime = 0;
 let writePtr = 0;
 
-// After 30 seconds without being read, a buffer will be considered
-// unused, and thus removed from memory.
+// After 30 seconds without being read, the logger buffer will be considered
+// unused, and thus disabled.
 const logBufferObsoleteAfter = 30 * 1000;
 
-const janitor = ( ) => {
-    if (
-        buffer !== null &&
-        lastReadTime < (Date.now() - logBufferObsoleteAfter)
-    ) {
-        logger.enabled = false;
-        buffer = null;
-        writePtr = 0;
-        logger.ownerId = undefined;
-        vAPI.messaging.broadcast({ what: 'loggerDisabled' });
+const janitorTimer = vAPI.defer.create(( ) => {
+    if ( buffer === null ) { return; }
+    if ( lastReadTime >= (Date.now() - logBufferObsoleteAfter) ) {
+        return janitorTimer.on(logBufferObsoleteAfter);
     }
-    if ( buffer !== null ) {
-        vAPI.setTimeout(janitor, logBufferObsoleteAfter);
-    }
-};
+    logger.enabled = false;
+    buffer = null;
+    writePtr = 0;
+    logger.ownerId = undefined;
+    broadcastToAll({ what: 'loggerDisabled' });
+});
 
 const boxEntry = function(details) {
     if ( details.tstamp === undefined ) {
@@ -72,7 +72,7 @@ const logger = {
         if ( buffer === null ) {
             this.enabled = true;
             buffer = [];
-            vAPI.setTimeout(janitor, logBufferObsoleteAfter);
+            janitorTimer.on(logBufferObsoleteAfter);
         }
         const out = buffer.slice(0, writePtr);
         writePtr = 0;

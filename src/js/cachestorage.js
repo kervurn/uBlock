@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2016-present The uBlock Origin authors
 
     This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@
     Home: https://github.com/gorhill/uBlock
 */
 
-/* global IDBDatabase, indexedDB */
+/* global browser, IDBDatabase, indexedDB */
 
 'use strict';
 
@@ -61,16 +61,41 @@ const STORAGE_NAME = 'uBlock0CacheStorage';
 // Default to webext storage.
 const storageLocal = webext.storage.local;
 
+let storageReadyResolve;
+const storageReadyPromise = new Promise(resolve => {
+    storageReadyResolve = resolve;
+});
+
 const cacheStorage = {
     name: 'browser.storage.local',
-    get: storageLocal.get.bind(storageLocal),
-    set: storageLocal.set.bind(storageLocal),
-    remove: storageLocal.remove.bind(storageLocal),
-    clear: storageLocal.clear.bind(storageLocal),
-    // Not all platforms support getBytesInUse
-    getBytesInUse: storageLocal.getBytesInUse
-        ? storageLocal.getBytesInUse.bind(storageLocal)
-        : undefined,
+    get(...args) {
+        return storageReadyPromise.then(( ) =>
+            storageLocal.get(...args).catch(reason => {
+                console.log(reason);
+            })
+        );
+    },
+    set(...args) {
+        return storageReadyPromise.then(( ) =>
+            storageLocal.set(...args).catch(reason => {
+                console.log(reason);
+            })
+        );
+    },
+    remove(...args) {
+        return storageReadyPromise.then(( ) =>
+            storageLocal.remove(...args).catch(reason => {
+                console.log(reason);
+            })
+        );
+    },
+    clear(...args) {
+        return storageReadyPromise.then(( ) =>
+            storageLocal.clear(...args).catch(reason => {
+                console.log(reason);
+            })
+        );
+    },
     select: function(selectedBackend) {
         let actualBackend = selectedBackend;
         if ( actualBackend === undefined || actualBackend === 'unset' ) {
@@ -82,55 +107,58 @@ const cacheStorage = {
             return selectIDB().then(success => {
                 if ( success || selectedBackend === 'indexedDB' ) {
                     clearWebext();
+                    storageReadyResolve();
                     return 'indexedDB';
                 }
                 clearIDB();
+                storageReadyResolve();
                 return 'browser.storage.local';
             });
         }
         if ( actualBackend === 'browser.storage.local' ) {
             clearIDB();
         }
+        storageReadyResolve();
         return Promise.resolve('browser.storage.local');
         
     },
     error: undefined
 };
 
+// Not all platforms support getBytesInUse
+if ( storageLocal.getBytesInUse instanceof Function ) {
+    cacheStorage.getBytesInUse = function(...args) {
+        return storageLocal.getBytesInUse(...args).catch(reason => {
+            console.log(reason);
+        });
+    };
+}
+
 // Reassign API entries to that of indexedDB-based ones
 const selectIDB = async function() {
     let db;
     let dbPromise;
-    let dbTimer;
 
     const noopfn = function () {
     };
 
     const disconnect = function() {
-        if ( dbTimer !== undefined ) {
-            clearTimeout(dbTimer);
-            dbTimer = undefined;
-        }
+        dbTimer.off();
         if ( db instanceof IDBDatabase ) {
             db.close();
             db = undefined;
         }
     };
 
+    const dbTimer = vAPI.defer.create(( ) => {
+        disconnect();
+    });
+
     const keepAlive = function() {
-        if ( dbTimer !== undefined ) {
-            clearTimeout(dbTimer);
-        }
-        dbTimer = vAPI.setTimeout(
-            ( ) => {
-                dbTimer = undefined;
-                disconnect();
-            },
-            Math.max(
-                µb.hiddenSettings.autoUpdateAssetFetchPeriod * 2 * 1000,
-                180000
-            )
-        );
+        dbTimer.offon(Math.max(
+            µb.hiddenSettings.autoUpdateAssetFetchPeriod * 2 * 1000,
+            180000
+        ));
     };
 
     // https://github.com/gorhill/uBlock/issues/3156
@@ -167,6 +195,15 @@ const selectIDB = async function() {
                 return resolve(null);
             }
             req.onupgradeneeded = function(ev) {
+                // https://github.com/uBlockOrigin/uBlock-issues/issues/2725
+                //   If context Firefox + incognito mode, fall back to
+                //   browser.storage.local for cache storage purpose.
+                if (
+                    vAPI.webextFlavor.soup.has('firefox') &&
+                    browser.extension.inIncognitoContext === true
+                ) {
+                    return req.onerror();
+                }
                 if ( ev.oldVersion === 1 ) { return; }
                 try {
                     const db = ev.target.result;
@@ -192,13 +229,13 @@ const selectIDB = async function() {
                 resolve(null);
                 resolve = undefined;
             };
-            setTimeout(( ) => {
+            vAPI.defer.once(5000).then(( ) => {
                 if ( resolve === undefined ) { return; }
                 db = null;
                 dbPromise = undefined;
                 resolve(null);
                 resolve = undefined;
-            }, 5000);
+            });
         });
         return dbPromise;
     };
@@ -414,36 +451,44 @@ const selectIDB = async function() {
 
     cacheStorage.name = 'indexedDB';
     cacheStorage.get = function get(keys) {
-        return new Promise(resolve => {
-            if ( keys === null ) {
-                return getAllFromDb(bin => resolve(bin));
-            }
-            let toRead, output = {};
-            if ( typeof keys === 'string' ) {
-                toRead = [ keys ];
-            } else if ( Array.isArray(keys) ) {
-                toRead = keys;
-            } else /* if ( typeof keys === 'object' ) */ {
-                toRead = Object.keys(keys);
-                output = keys;
-            }
-            getFromDb(toRead, output, bin => resolve(bin));
-        });
+        return storageReadyPromise.then(( ) =>
+            new Promise(resolve => {
+                if ( keys === null ) {
+                    return getAllFromDb(bin => resolve(bin));
+                }
+                let toRead, output = {};
+                if ( typeof keys === 'string' ) {
+                    toRead = [ keys ];
+                } else if ( Array.isArray(keys) ) {
+                    toRead = keys;
+                } else /* if ( typeof keys === 'object' ) */ {
+                    toRead = Object.keys(keys);
+                    output = keys;
+                }
+                getFromDb(toRead, output, bin => resolve(bin));
+            })
+        );
     };
     cacheStorage.set = function set(keys) {
-        return new Promise(resolve => {
-            putToDb(keys, details => resolve(details));
-        });
+        return storageReadyPromise.then(( ) =>
+            new Promise(resolve => {
+                putToDb(keys, details => resolve(details));
+            })
+        );
     };
     cacheStorage.remove = function remove(keys) {
-        return new Promise(resolve => {
-            deleteFromDb(keys, ( ) => resolve());
-        });
+        return storageReadyPromise.then(( ) =>
+            new Promise(resolve => {
+                deleteFromDb(keys, ( ) => resolve());
+            })
+        );
     };
     cacheStorage.clear = function clear() {
-        return new Promise(resolve => {
-            clearDb(( ) => resolve());
-        });
+        return storageReadyPromise.then(( ) =>
+            new Promise(resolve => {
+                clearDb(( ) => resolve());
+            })
+        );
     };
     cacheStorage.getBytesInUse = function getBytesInUse() {
         return Promise.resolve(0);
@@ -454,18 +499,17 @@ const selectIDB = async function() {
 // https://github.com/uBlockOrigin/uBlock-issues/issues/328
 //   Delete cache-related entries from webext storage.
 const clearWebext = async function() {
-    const bin = await webext.storage.local.get('assetCacheRegistry');
-    if (
-        bin instanceof Object === false ||
-        bin.assetCacheRegistry instanceof Object === false
-    ) {
-        return;
+    let bin;
+    try {
+        bin = await webext.storage.local.get('assetCacheRegistry');
+    } catch(ex) {
+        console.error(ex);
     }
+    if ( bin instanceof Object === false ) { return; }
+    if ( bin.assetCacheRegistry instanceof Object === false ) { return; }
     const toRemove = [
         'assetCacheRegistry',
         'assetSourceRegistry',
-        'resourcesSelfie',
-        'selfie'
     ];
     for ( const key in bin.assetCacheRegistry ) {
         if ( bin.assetCacheRegistry.hasOwnProperty(key) ) {

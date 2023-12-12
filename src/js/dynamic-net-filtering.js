@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-2018 Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -292,14 +292,13 @@ class DynamicHostRuleFiltering {
         this.y = '*';
 
         // Specific party
-        // TODO: equate `object` as `sub_frame`
         if ( thirdParty ) {
             // 3rd-party, specific type
             if ( type === 'script' ) {
                 if ( this.evaluateCellZ(srcHostname, '*', '3p-script') !== 0 ) {
                     return this.r;
                 }
-            } else if ( type === 'sub_frame' ) {
+            } else if ( type === 'sub_frame' || type === 'object' ) {
                 if ( this.evaluateCellZ(srcHostname, '*', '3p-frame') !== 0 ) {
                     return this.r;
                 }

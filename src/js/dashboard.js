@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -102,6 +102,27 @@ if ( self.location.hash.slice(1) === 'no-dashboard.html' ) {
 }
 
 (async ( ) => {
+    // Wait for uBO's main process to be ready
+    await new Promise(resolve => {
+        const check = async ( ) => {
+            try {
+                const response = await vAPI.messaging.send('dashboard', {
+                    what: 'readyToFilter'
+                });
+                if ( response ) { return resolve(true); }
+                const iframe = qs$('#iframe');
+                if ( iframe.src !== '' ) {
+                    iframe.src = '';
+                }
+            } catch(ex) {
+            }
+            vAPI.defer.once(250).then(( ) => check());
+        };
+        check();
+    });
+
+    dom.cl.remove(dom.body, 'notReady');
+
     const results = await Promise.all([
         // https://github.com/uBlockOrigin/uBlock-issues/issues/106
         vAPI.messaging.send('dashboard', { what: 'dashboardConfig' }),
@@ -128,10 +149,18 @@ if ( self.location.hash.slice(1) === 'no-dashboard.html' ) {
         dom.on('.tabButton', 'click', onTabClickHandler);
 
         // https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event
-        dom.on(window, 'beforeunload', ( ) => {
+        dom.on(self, 'beforeunload', ( ) => {
             if ( discardUnsavedData(true) ) { return; }
             event.preventDefault();
             event.returnValue = '';
         });
+
+        // https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event
+        dom.on(self, 'hashchange', ( ) => {
+            const pane = self.location.hash.slice(1);
+            if ( pane === '' ) { return; }
+            loadDashboardPanel(pane);
+        });
+
     }
 })();

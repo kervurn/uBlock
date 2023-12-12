@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -23,12 +23,13 @@
 
 /******************************************************************************/
 
-import contextMenu from './contextmenu.js';
-import cosmeticFilteringEngine from './cosmetic-filtering.js';
 import io from './assets.js';
 import µb from './background.js';
-import { hostnameFromURI } from './uri-utils.js';
+import { broadcast, filteringBehaviorChanged, onBroadcast } from './broadcast.js';
+import contextMenu from './contextmenu.js';
+import cosmeticFilteringEngine from './cosmetic-filtering.js';
 import { redirectEngine } from './redirect-engine.js';
+import { hostnameFromURI } from './uri-utils.js';
 
 import {
     permanentFirewall,
@@ -147,6 +148,7 @@ const matchBucket = function(url, hostname, bucket, start) {
         }
         bucket.push(directive);
         this.saveWhitelist();
+        filteringBehaviorChanged({ hostname: targetHostname });
         return true;
     }
 
@@ -187,6 +189,7 @@ const matchBucket = function(url, hostname, bucket, start) {
         }
     }
     this.saveWhitelist();
+    filteringBehaviorChanged({ direction: 1 });
     return true;
 };
 
@@ -421,7 +424,7 @@ const matchBucket = function(url, hostname, bucket, start) {
         redirectEngine.invalidateResourcesSelfie(io);
         this.loadRedirectResources();
     }
-    this.fireDOMEvent('hiddenSettingsChanged');
+    broadcast({ what: 'hiddenSettingsChanged' });
 };
 
 /******************************************************************************/
@@ -465,7 +468,8 @@ const matchBucket = function(url, hostname, bucket, start) {
 // (but not really) redundant rules led to this issue.
 
 µb.toggleFirewallRule = function(details) {
-    let { srcHostname, desHostname, requestType, action } = details;
+    const { desHostname, requestType, action } = details;
+    let { srcHostname } = details;
 
     if ( action !== 0 ) {
         sessionFirewall.setCell(
@@ -495,8 +499,7 @@ const matchBucket = function(url, hostname, bucket, start) {
             permanentFirewall.unsetCell(
                 srcHostname,
                 desHostname,
-                requestType,
-                action
+                requestType
             );
         }
         this.savePermanentFirewallRules();
@@ -520,6 +523,12 @@ const matchBucket = function(url, hostname, bucket, start) {
 
     // https://github.com/chrisaljoudi/uBlock/issues/420
     cosmeticFilteringEngine.removeFromSelectorCache(srcHostname, 'net');
+
+    // Flush caches
+    filteringBehaviorChanged({
+        direction: action === 1 ? 1 : 0,
+        hostname: srcHostname,
+    });
 
     if ( details.tabId === undefined ) { return; }
 
@@ -577,25 +586,42 @@ const matchBucket = function(url, hostname, bucket, start) {
     );
     if ( changed === false ) { return; }
 
-    // Take action if needed
+    // Take per-switch action if needed
     switch ( details.name ) {
-    case 'no-scripting':
-        this.updateToolbarIcon(details.tabId, 0b100);
-        break;
-    case 'no-cosmetic-filtering': {
-        const scriptlet = newState ? 'cosmetic-off' : 'cosmetic-on';
-        vAPI.tabs.executeScript(details.tabId, {
-            file: `/js/scriptlets/${scriptlet}.js`,
-            allFrames: true,
-        });
-        break;
-    }
-    case 'no-large-media':
-        const pageStore = this.pageStoreFromTabId(details.tabId);
-        if ( pageStore !== null ) {
-            pageStore.temporarilyAllowLargeMediaElements(!newState);
+        case 'no-scripting':
+            this.updateToolbarIcon(details.tabId, 0b100);
+            break;
+        case 'no-cosmetic-filtering': {
+            const scriptlet = newState ? 'cosmetic-off' : 'cosmetic-on';
+            vAPI.tabs.executeScript(details.tabId, {
+                file: `/js/scriptlets/${scriptlet}.js`,
+                allFrames: true,
+            });
+            break;
         }
-        break;
+        case 'no-large-media':
+            const pageStore = this.pageStoreFromTabId(details.tabId);
+            if ( pageStore !== null ) {
+                pageStore.temporarilyAllowLargeMediaElements(!newState);
+            }
+            break;
+        default:
+            break;
+    }
+
+    // Flush caches if needed
+    if ( newState ) {
+        switch ( details.name ) {
+            case 'no-scripting':
+            case 'no-remote-fonts':
+                filteringBehaviorChanged({
+                    direction: details.state ? 1 : 0,
+                    hostname: details.hostname,
+                });
+                break;
+            default:
+                break;
+        }
     }
 
     if ( details.persist !== true ) { return; }
@@ -652,7 +678,10 @@ const matchBucket = function(url, hostname, bucket, start) {
 
     parse();
 
-    self.addEventListener('hiddenSettingsChanged', ( ) => { parse(); });
+    onBroadcast(msg => {
+        if ( msg.what !== 'hiddenSettingsChanged' ) { return; }
+        parse();
+    });
 }
 
 /******************************************************************************/

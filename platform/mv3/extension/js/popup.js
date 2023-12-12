@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin Lite - a comprehensive, MV3-compliant content blocker
     Copyright (C) 2022-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -25,10 +25,16 @@
 
 /******************************************************************************/
 
-import { browser, sendMessage } from './ext.js';
+import {
+    browser,
+    runtime,
+    sendMessage,
+    localRead, localWrite,
+} from './ext.js';
+
 import { dom, qs$ } from './dom.js';
-import { i18n$ } from './i18n.js';
-import { simpleStorage } from './storage.js';
+import { i18n,  i18n$ } from './i18n.js';
+import punycode from './punycode.js';
 
 /******************************************************************************/
 
@@ -242,11 +248,11 @@ async function toggleSections(more) {
     }
     if ( newBits === currentBits ) { return; }
     sectionBitsToAttribute(newBits);
-    simpleStorage.setItem('popupPanelSections', newBits);
+    localWrite('popupPanelSections', newBits);
 }
 
-simpleStorage.getItem('popupPanelSections').then(s => {
-    sectionBitsToAttribute(parseInt(s, 10) || 0);
+localRead('popupPanelSections').then(bits => {
+    sectionBitsToAttribute(bits || 0);
 });
 
 dom.on('#moreButton', 'click', ( ) => {
@@ -259,8 +265,19 @@ dom.on('#lessButton', 'click', ( ) => {
 
 /******************************************************************************/
 
+dom.on('[data-i18n-title="popupTipDashboard"]', 'click', ev => {
+    if ( ev.isTrusted !== true ) { return; }
+    if ( ev.button !== 0 ) { return; }
+    runtime.openOptionsPage();
+});
+
+/******************************************************************************/
+
 async function init() {
-    const [ tab ] = await browser.tabs.query({ active: true });
+    const [ tab ] = await browser.tabs.query({
+        active: true,
+        currentWindow: true,
+    });
     if ( tab instanceof Object === false ) { return true; }
     Object.assign(currentTab, tab);
 
@@ -284,21 +301,26 @@ async function init() {
 
     setFilteringMode(popupPanelData.level);
 
-    dom.text('#hostname', tabHostname);
+    dom.text('#hostname', punycode.toUnicode(tabHostname));
 
     const parent = qs$('#rulesetStats');
     for ( const details of popupPanelData.rulesetDetails || [] ) {
         const div = dom.clone('#templates .rulesetDetails');
-        dom.text(qs$(div, 'h1'), details.name);
+        qs$(div, 'h1').append(i18n.patchUnicodeFlags(details.name));
         const { rules, filters, css } = details;
         let ruleCount = rules.plain + rules.regex;
         if ( popupPanelData.hasOmnipotence ) {
-            ruleCount += rules.removeparam + rules.redirect + rules.csp;
+            ruleCount += rules.removeparam + rules.redirect + rules.modifyHeaders;
         }
         let specificCount = 0;
-        if ( css.specific instanceof Object ) {
-            specificCount += css.specific.domainBased;
-            specificCount += css.specific.entityBased;
+        if ( typeof css.specific === 'number' ) {
+            specificCount += css.specific;
+        }
+        if ( typeof css.declarative === 'number' ) {
+            specificCount += css.declarative;
+        }
+        if ( typeof css.procedural === 'number' ) {
+            specificCount += css.procedural;
         }
         dom.text(
             qs$(div, 'p'),

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-2015 The uBlock Origin authors
     Copyright (C) 2014-present Raymond Hill
 
@@ -42,7 +42,7 @@ vAPI.cantWebsocket =
 vAPI.canWASM = vAPI.webextFlavor.soup.has('chromium') === false;
 if ( vAPI.canWASM === false ) {
     const csp = manifest.content_security_policy;
-    vAPI.canWASM = csp !== undefined && csp.indexOf("'unsafe-eval'") !== -1;
+    vAPI.canWASM = csp !== undefined && csp.indexOf("'wasm-unsafe-eval'") !== -1;
 }
 
 vAPI.supportsUserStylesheets = vAPI.webextFlavor.soup.has('user_stylesheet');
@@ -87,10 +87,98 @@ vAPI.app = {
     },
 };
 
-/******************************************************************************/
-/******************************************************************************/
+/*******************************************************************************
+ * 
+ * https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/storage/session
+ * 
+ * Session (in-memory) storage is promise-based in all browsers, no need for
+ * a webext polyfill. However, not all browsers supports it in MV2.
+ * 
+ * */
 
-vAPI.storage = webext.storage.local;
+vAPI.sessionStorage = {
+    get() {
+        return Promise.resolve({});
+    },
+    set() {
+        return Promise.resolve();
+    },
+    remove() {
+        return Promise.resolve();
+    },
+    clear() {
+        return Promise.resolve();
+    },
+    implemented: false,
+};
+
+/*******************************************************************************
+ * 
+ * Data written to and read from storage.local will be mirrored to in-memory
+ * storage.session.
+ * 
+ * Data read from storage.local will be first fetched from storage.session,
+ * then if not available, read from storage.local.
+ * 
+ * */
+
+vAPI.storage = {
+    get(key, ...args) {
+        if ( vAPI.sessionStorage.implemented !== true ) {
+            return webext.storage.local.get(key, ...args).catch(reason => {
+                console.log(reason);
+            });
+        }
+        return vAPI.sessionStorage.get(key, ...args).then(bin => {
+            const size = Object.keys(bin).length;
+            if ( size === 1 && typeof key === 'string' && bin[key] === null ) {
+                return {};
+            }
+            if ( size !== 0 ) { return bin; }
+            return webext.storage.local.get(key, ...args).then(bin => {
+                if ( bin instanceof Object === false ) { return bin; }
+                // Mirror empty result as null value in order to prevent
+                // from falling back to storage.local when there is no need.
+                const tomirror = Object.assign({}, bin);
+                if ( typeof key === 'string' && Object.keys(bin).length === 0 ) {
+                    Object.assign(tomirror, { [key]: null });
+                }
+                vAPI.sessionStorage.set(tomirror);
+                return bin;
+            }).catch(reason => {
+                console.log(reason);
+            });
+        });
+    },
+    set(...args) {
+        vAPI.sessionStorage.set(...args);
+        return webext.storage.local.set(...args).catch(reason => {
+            console.log(reason);
+        });
+    },
+    remove(...args) {
+        vAPI.sessionStorage.remove(...args);
+        return webext.storage.local.remove(...args).catch(reason => {
+            console.log(reason);
+        });
+    },
+    clear(...args) {
+        vAPI.sessionStorage.clear(...args);
+        return webext.storage.local.clear(...args).catch(reason => {
+            console.log(reason);
+        });
+    },
+    QUOTA_BYTES: browser.storage.local.QUOTA_BYTES,
+};
+
+// Not all platforms support getBytesInUse
+if ( webext.storage.local.getBytesInUse instanceof Function ) {
+    vAPI.storage.getBytesInUse = function(...args) {
+        return webext.storage.local.getBytesInUse(...args).catch(reason => {
+            console.log(reason);
+        });
+    };
+}
 
 /******************************************************************************/
 /******************************************************************************/
@@ -211,6 +299,12 @@ vAPI.Tabs = class {
             this.onCreatedNavigationTargetHandler(details);
         });
         browser.webNavigation.onCommitted.addListener(details => {
+            const { frameId, tabId } = details;
+            if ( frameId === 0 && tabId > 0 && details.transitionType === 'reload' ) {
+                if ( vAPI.net && vAPI.net.hasUnprocessedRequest(tabId) ) {
+                    vAPI.net.removeUnprocessedRequest(tabId);
+                }
+            }
             this.onCommittedHandler(details);
         });
         browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -227,6 +321,9 @@ vAPI.Tabs = class {
             });
         }
         browser.tabs.onRemoved.addListener((tabId, details) => {
+            if ( vAPI.net && vAPI.net.hasUnprocessedRequest(tabId) ) {
+                vAPI.net.removeUnprocessedRequest(tabId);
+            }
             this.onRemovedHandler(tabId, details);
         });
      }
@@ -668,14 +765,20 @@ if ( webext.browserAction instanceof Object ) {
 // https://github.com/uBlockOrigin/uBlock-issues/issues/32
 //   Ensure ImageData for toolbar icon is valid before use.
 
-vAPI.setIcon = (( ) => {
+{
     const browserAction = vAPI.browserAction;
-    const  titleTemplate =
-        browser.runtime.getManifest().browser_action.default_title +
-        ' ({badge})';
+    const titleTemplate = `${browser.runtime.getManifest().browser_action.default_title} ({badge})`;
     const icons = [
-        { path: { '16': 'img/icon_16-off.png', '32': 'img/icon_32-off.png' } },
-        { path: { '16':     'img/icon_16.png', '32':     'img/icon_32.png' } },
+        { path: {
+            '16': 'img/icon_16-off.png',
+            '32': 'img/icon_32-off.png',
+            '64': 'img/icon_64-off.png',
+        } },
+        { path: {
+            '16': 'img/icon_16.png',
+            '32': 'img/icon_32.png',
+            '64': 'img/icon_64.png',
+        } },
     ];
 
     (( ) => {
@@ -702,9 +805,8 @@ vAPI.setIcon = (( ) => {
 
         const imgs = [];
         for ( let i = 0; i < icons.length; i++ ) {
-            const path = icons[i].path;
-            for ( const key in path ) {
-                if ( path.hasOwnProperty(key) === false ) { continue; }
+            for ( const key of Object.keys(icons[i].path) ) {
+                if ( parseInt(key, 10) >= 64 ) { continue; }
                 imgs.push({ i: i, p: key, cached: false });
             }
         }
@@ -765,14 +867,18 @@ vAPI.setIcon = (( ) => {
     //        bit 2 = badge color
     //        bit 3 = hide badge
 
-    return async function(tabId, details) {
+    vAPI.setIcon = async function(tabId, details) {
         tabId = toTabId(tabId);
         if ( tabId === 0 ) { return; }
 
         const tab = await vAPI.tabs.get(tabId);
         if ( tab === null ) { return; }
 
-        const { parts, state, badge, color } = details;
+        const hasUnprocessedRequest = vAPI.net && vAPI.net.hasUnprocessedRequest(tabId);
+        const { parts, state } = details;
+        const { badge, color } = hasUnprocessedRequest
+                ? { badge: '!', color: '#FC0' }
+                : details;
 
         if ( browserAction.setIcon !== undefined ) {
             if ( parts === undefined || (parts & 0b0001) !== 0 ) {
@@ -794,25 +900,33 @@ vAPI.setIcon = (( ) => {
         // Insert the badge text in the title if:
         // - the platform does not support browserAction.setIcon(); OR
         // - the rendering of the badge is disabled
-        if (
-            browserAction.setTitle !== undefined && (
-                browserAction.setIcon === undefined || (parts & 0b1000) !== 0
-            )
-        ) {
-            browserAction.setTitle({
-                tabId: tab.id,
-                title: titleTemplate.replace(
-                    '{badge}',
-                    state === 1 ? (badge !== '' ? badge : '0') : 'off'
-                )
-            });
+        if ( browserAction.setTitle !== undefined ) {
+            const title = titleTemplate.replace('{badge}',
+                state === 1 ? (badge !== '' ? badge : '0') : 'off'
+            );
+            browserAction.setTitle({ tabId: tab.id, title });
         }
 
         if ( vAPI.contextMenu instanceof Object ) {
             vAPI.contextMenu.onMustUpdate(tabId);
         }
     };
-})();
+
+    vAPI.setDefaultIcon = function(flavor, text) {
+        if ( browserAction.setIcon === undefined ) { return; }
+        browserAction.setIcon({
+            path: {
+                '16': `img/icon_16${flavor}.png`,
+                '32': `img/icon_32${flavor}.png`,
+                '64': `img/icon_64${flavor}.png`,
+            }
+        });
+        browserAction.setBadgeText({ text });
+        browserAction.setBadgeBackgroundColor({
+            color: text === '!' ? '#FC0' : '#666'
+        });
+    };
+}
 
 browser.browserAction.onClicked.addListener(function(tab) {
     vAPI.tabs.open({
@@ -910,68 +1024,11 @@ vAPI.messaging = {
         }
     },
 
-    broadcast: function(message) {
-        const messageWrapper = { broadcast: true, msg: message };
-        for ( const { port } of this.ports.values() ) {
-            try {
-                port.postMessage(messageWrapper);
-            } catch(ex) {
-                this.onPortDisconnect(port);
-            }
-        }
-    },
-
     onFrameworkMessage: function(request, port, callback) {
         const portDetails = this.ports.get(port.name) || {};
         const tabId = portDetails.tabId;
         const msg = request.msg;
         switch ( msg.what ) {
-        case 'connectionAccepted':
-        case 'connectionRefused': {
-            const toPort = this.ports.get(msg.fromToken);
-            if ( toPort !== undefined ) {
-                msg.tabId = tabId;
-                toPort.port.postMessage(request);
-            } else {
-                msg.what = 'connectionBroken';
-                port.postMessage(request);
-            }
-            break;
-        }
-        case 'connectionRequested':
-            msg.tabId = tabId;
-            for ( const { port: toPort } of this.ports.values() ) {
-                if ( toPort === port ) { continue; }
-                try {
-                    toPort.postMessage(request);
-                } catch (ex) {
-                    this.onPortDisconnect(toPort);
-                }
-            }
-            break;
-        case 'connectionBroken':
-        case 'connectionCheck':
-        case 'connectionMessage': {
-            const toPort = this.ports.get(
-                port.name === msg.fromToken ? msg.toToken : msg.fromToken
-            );
-            if ( toPort !== undefined ) {
-                msg.tabId = tabId;
-                toPort.port.postMessage(request);
-            } else {
-                msg.what = 'connectionBroken';
-                port.postMessage(request);
-            }
-            break;
-        }
-        case 'extendClient':
-            vAPI.tabs.executeScript(tabId, {
-                file: '/js/vapi-client-extra.js',
-                frameId: portDetails.frameId,
-            }).then(( ) => {
-                callback();
-            });
-            break;
         case 'localStorage': {
             if ( portDetails.privileged !== true ) { break; }
             const args = msg.args || [];
@@ -1107,24 +1164,30 @@ vAPI.messaging = {
 // https://github.com/uBlockOrigin/uBlock-issues/issues/550
 //   Support using a new secret for every network request.
 
-vAPI.warSecret = (( ) => {
-    const generateSecret = ( ) => {
-        return Math.floor(Math.random() * 982451653 + 982451653).toString(36);
-    };
+{
+    // Generate a 6-character alphanumeric string, thus one random value out
+    // of 36^6 = over 2x10^9 values.
+    const generateSecret = ( ) =>
+        (Math.floor(Math.random() * 2176782336) + 2176782336).toString(36).slice(1);
 
     const root = vAPI.getURL('/');
-    const secrets = [];
-    let lastSecretTime = 0;
+    const reSecret = /\?secret=(\w+)/;
+    const shortSecrets = [];
+    let lastShortSecretTime = 0;
 
-    const guard = function(details) {
-        const url = details.url;
-        const pos = secrets.findIndex(secret =>
-            url.lastIndexOf(`?secret=${secret}`) !== -1
-        );
-        if ( pos === -1 ) {
-            return { cancel: true };
-        }
-        secrets.splice(pos, 1);
+    // Long secrets are meant to be used multiple times, but for at most a few
+    // minutes. The realm is one value out of 36^18 = over 10^28 values.
+    const longSecrets = [ '', '' ];
+    let lastLongSecretTimeSlice = 0;
+
+    const guard = details => {
+        const match = reSecret.exec(details.url);
+        if ( match === null ) { return { cancel: true }; }
+        const secret = match[1];
+        if ( longSecrets.includes(secret) ) { return; }
+        const pos = shortSecrets.indexOf(secret);
+        if ( pos === -1 ) { return { cancel: true }; }
+        shortSecrets.splice(pos, 1);
     };
 
     browser.webRequest.onBeforeRequest.addListener(
@@ -1135,20 +1198,31 @@ vAPI.warSecret = (( ) => {
         [ 'blocking' ]
     );
 
-    return ( ) => {
-        if ( secrets.length !== 0 ) {
-            if ( (Date.now() - lastSecretTime) > 5000 ) {
-                secrets.splice(0);
-            } else if ( secrets.length > 256 ) {
-                secrets.splice(0, secrets.length - 192);
+    vAPI.warSecret = {
+        short: ( ) => {
+            if ( shortSecrets.length !== 0 ) {
+                if ( (Date.now() - lastShortSecretTime) > 5000 ) {
+                    shortSecrets.splice(0);
+                } else if ( shortSecrets.length > 256 ) {
+                    shortSecrets.splice(0, shortSecrets.length - 192);
+                }
             }
-        }
-        lastSecretTime = Date.now();
-        const secret = generateSecret();
-        secrets.push(secret);
-        return secret;
+            lastShortSecretTime = Date.now();
+            const secret = generateSecret();
+            shortSecrets.push(secret);
+            return secret;
+        },
+        long: ( ) => {
+            const timeSlice = Date.now() >>> 19; // Changes every ~9 minutes
+            if ( timeSlice !== lastLongSecretTimeSlice ) {
+                longSecrets[1] = longSecrets[0];
+                longSecrets[0] = `${generateSecret()}${generateSecret()}${generateSecret()}`;
+                lastLongSecretTimeSlice = timeSlice;
+            }
+            return longSecrets[0];
+        },
     };
-})();
+}
 
 /******************************************************************************/
 
@@ -1164,8 +1238,10 @@ vAPI.Net = class {
             }
         }
         this.suspendableListener = undefined;
+        this.deferredSuspendableListener = undefined;
         this.listenerMap = new WeakMap();
         this.suspendDepth = 0;
+        this.unprocessedTabs = new Map();
 
         browser.webRequest.onBeforeRequest.addListener(
             details => {
@@ -1178,6 +1254,8 @@ vAPI.Net = class {
             this.denormalizeFilters({ urls: [ 'http://*/*', 'https://*/*' ] }),
             [ 'blocking' ]
         );
+
+        vAPI.setDefaultIcon('-loading', '');
     }
     setOptions(/* options */) {
     }
@@ -1218,11 +1296,37 @@ vAPI.Net = class {
         );
     }
     onBeforeSuspendableRequest(details) {
-        if ( this.suspendableListener === undefined ) { return; }
-        return this.suspendableListener(details);
+        if ( this.suspendableListener !== undefined ) {
+            return this.suspendableListener(details);
+        }
+        this.onUnprocessedRequest(details);
     }
     setSuspendableListener(listener) {
+        for ( const [ tabId, requests ] of this.unprocessedTabs ) {
+            let i = requests.length;
+            while ( i-- ) {
+                const r = listener(requests[i]);
+                if ( r === undefined || r.cancel !== true ) {
+                    requests.splice(i, 1);
+                }
+            }
+            if ( requests.length !== 0 ) { continue; }
+            this.unprocessedTabs.delete(tabId);
+        }
+        if ( this.unprocessedTabs.size !== 0 ) {
+            this.deferredSuspendableListener = listener;
+            listener = details => {
+                const { tabId, type  } = details;
+                if ( type === 'main_frame' && this.unprocessedTabs.has(tabId) ) {
+                    if ( this.removeUnprocessedRequest(tabId) ) {
+                        return this.suspendableListener(details);
+                    }
+                }
+                return this.deferredSuspendableListener(details);
+            };
+        }
         this.suspendableListener = listener;
+        vAPI.setDefaultIcon('', '');
     }
     removeListener(which, clientListener) {
         const actualListener = this.listenerMap.get(clientListener);
@@ -1237,6 +1341,41 @@ vAPI.Net = class {
         };
         this.listenerMap.set(clientListener, actualListener);
         return actualListener;
+    }
+    handlerBehaviorChanged() {
+        browser.webRequest.handlerBehaviorChanged();
+    }
+    onUnprocessedRequest(details) {
+        const { tabId } = details;
+        if ( tabId === -1 ) { return; }
+        if ( this.unprocessedTabs.size === 0 ) {
+            vAPI.setDefaultIcon('-loading', '!');
+        }
+        let requests = this.unprocessedTabs.get(tabId);
+        if ( requests === undefined ) {
+            this.unprocessedTabs.set(tabId, (requests = []));
+        }
+        requests.push(Object.assign({}, details));
+    }
+    hasUnprocessedRequest(tabId) {
+        if ( this.unprocessedTabs.size === 0 ) { return false; }
+        if ( tabId === undefined ) { return true; }
+        return this.unprocessedTabs.has(tabId);
+    }
+    removeUnprocessedRequest(tabId) {
+        if ( this.deferredSuspendableListener === undefined ) {
+            this.unprocessedTabs.clear();
+            return true;
+        }
+        if ( tabId !== undefined ) {
+            this.unprocessedTabs.delete(tabId);
+        } else {
+            this.unprocessedTabs.clear();
+        }
+        if ( this.unprocessedTabs.size !== 0 ) { return false; }
+        this.suspendableListener = this.deferredSuspendableListener;
+        this.deferredSuspendableListener = undefined;
+        return true;
     }
     suspendOneRequest() {
     }
@@ -1259,6 +1398,15 @@ vAPI.Net = class {
         return false;
     }
 };
+
+/******************************************************************************/
+/******************************************************************************/
+
+// To be defined by platform-specific code.
+
+vAPI.scriptletsInjector = (( ) => {
+    self.uBO_scriptletsInjected = '';
+}).toString();
 
 /******************************************************************************/
 /******************************************************************************/
@@ -1312,6 +1460,11 @@ vAPI.commands = browser.commands;
 // https://github.com/gorhill/uBlock/issues/900
 // Also, UC Browser: http://www.upsieutoc.com/image/WXuH
 
+// https://github.com/uBlockOrigin/uAssets/discussions/16939
+//   Use a cached version of admin settings, such that there is no blocking
+//   call on `storage.managed`. The side effect is that any changes to admin
+//   settings will require an extra extension restart to take effect.
+
 vAPI.adminStorage = (( ) => {
     if ( webext.storage.managed instanceof Object === false ) {
         return {
@@ -1320,17 +1473,47 @@ vAPI.adminStorage = (( ) => {
             },
         };
     }
+    const cacheManagedStorage = async ( ) => {
+        let store;
+        try {
+            store = await webext.storage.managed.get();
+        } catch(ex) {
+        }
+        vAPI.storage.set({ cachedManagedStorage: store || {} });
+    };
+
     return {
         get: async function(key) {
             let bin;
             try {
-                bin = await webext.storage.managed.get(key);
+                bin = await vAPI.storage.get('cachedManagedStorage') || {};
+                if ( Object.keys(bin).length === 0 ) {
+                    bin = await webext.storage.managed.get() || {};
+                } else {
+                    bin = bin.cachedManagedStorage;
+                }
             } catch(ex) {
+                bin = {};
+            }
+            cacheManagedStorage();
+            if ( key === undefined || key === null ) {
+                return bin;
             }
             if ( typeof key === 'string' && bin instanceof Object ) {
                 return bin[key];
             }
-            return bin;
+            const out = {};
+            if ( Array.isArray(key) ) {
+                for ( const k of key ) {
+                    if ( bin[k] === undefined ) { continue; }
+                    out[k] = bin[k];
+                }
+                return out;
+            }
+            for ( const [ k, v ] of Object.entries(key) ) {
+                out[k] = bin[k] !== undefined ? bin[k] : v;
+            }
+            return out;
         }
     };
 })();
@@ -1351,7 +1534,7 @@ vAPI.localStorage = {
     start: async function() {
         if ( this.cache instanceof Promise ) { return this.cache; }
         if ( this.cache instanceof Object ) { return this.cache; }
-        this.cache = webext.storage.local.get('localStorage').then(bin => {
+        this.cache = vAPI.storage.get('localStorage').then(bin => {
             this.cache = bin instanceof Object &&
                 bin.localStorage instanceof Object
                     ? bin.localStorage
@@ -1361,7 +1544,7 @@ vAPI.localStorage = {
     },
     clear: function() {
         this.cache = {};
-        return webext.storage.local.set({ localStorage: this.cache });
+        return vAPI.storage.set({ localStorage: this.cache });
     },
     getItem: function(key) {
         if ( this.cache instanceof Object === false ) {
@@ -1383,7 +1566,7 @@ vAPI.localStorage = {
         await this.start();
         if ( value === this.cache[key] ) { return; }
         this.cache[key] = value;
-        return webext.storage.local.set({ localStorage: this.cache });
+        return vAPI.storage.set({ localStorage: this.cache });
     },
     cache: undefined,
 };
@@ -1458,7 +1641,7 @@ vAPI.cloud = (( ) => {
         try {
             bin = await webext.storage.sync.get(keys);
         } catch (reason) {
-            return reason;
+            return String(reason);
         }
         let chunkCount = 0;
         for ( let i = 0; i < maxChunkCountPerItem; i += 16 ) {
@@ -1612,5 +1795,19 @@ vAPI.cloud = (( ) => {
 
     return { push, pull, used, getOptions, setOptions };
 })();
+
+/******************************************************************************/
+/******************************************************************************/
+
+vAPI.alarms = browser.alarms || {
+    create() {
+    },
+    clear() {
+    },
+    onAlarm: {
+        addListener() {
+        }
+    }
+};
 
 /******************************************************************************/

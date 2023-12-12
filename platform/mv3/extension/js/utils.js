@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin Lite - a comprehensive, MV3-compliant content blocker
     Copyright (C) 2022-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -22,6 +22,10 @@
 /* jshint esversion:11 */
 
 'use strict';
+
+/******************************************************************************/
+
+import { browser } from './ext.js';
 
 /******************************************************************************/
 
@@ -119,11 +123,18 @@ const hostnamesFromMatches = origins => {
 
 /******************************************************************************/
 
-const fnameFromFileId = fid =>
-    fid.toString(32).padStart(7, '0');
+export const broadcastMessage = message => {
+    const bc = new self.BroadcastChannel('uBOL');
+    bc.postMessage(message);
+};
 
-const fidFromFileName = fname =>
-    parseInt(fname, 32);
+/******************************************************************************/
+
+const ubolLog = (...args) => {
+    // Do not pollute dev console in stable release.
+    if ( browser.runtime.id === 'ddkjiahejlhfcafbddmgiahcphecmpfh' ) { return; }
+    console.info('[uBOL]', ...args);
+};
 
 /******************************************************************************/
 
@@ -136,6 +147,5 @@ export {
     subtractHostnameIters,
     matchesFromHostnames,
     hostnamesFromMatches,
-    fnameFromFileId,
-    fidFromFileName,
+    ubolLog,
 };

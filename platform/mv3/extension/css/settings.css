@@ -2,9 +2,6 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
     }
-body {
-    margin-bottom: 6rem;
-    }
 legend {
     color: var(--ink-3);
     font-size: var(--font-size-smaller);
@@ -18,11 +15,8 @@ body.firstRun .firstRun {
     display: block;
     padding: 8px;
     }
-body > div {
-    margin: 1em 0;
-    }
 h3 {
-    margin: 0;
+    margin: 1em 0;
     }
 p {
     white-space: pre-line;
@@ -70,6 +64,16 @@ p {
     width: calc(240px / 2);
     }
 
+h3[data-i18n="filteringMode0Name"]::first-letter {
+    text-transform: capitalize;
+    }
+#trustedSites  {
+    box-sizing: border-box;
+    height: 6rem;
+    resize: vertical;
+    width: 100%;
+    }
+
 #lists {
     margin: 0.5em 0 0 0;
     padding: 0;
@@ -109,7 +113,6 @@ p {
 .listEntry > * {
     margin-left: 0;
     margin-right: 0;
-    text-transform: capitalize;
     unicode-bidi: embed;
     }
 .listEntry .listname {
@@ -145,6 +148,11 @@ p {
     display: none;
 }
 
+body.noMoreRuleset .listEntry:not(.checked) {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* touch-screen devices */
 :root.mobile .listEntry .fa-icon {
     font-size: 120%;
@@ -173,3 +181,12 @@ p {
 #templates {
     display: none;
     }
+
+@media (max-width: 480px) {
+    #defaultFilteringMode {
+        grid: 1fr 1fr 1fr / auto-flow dense;
+    }
+    .filteringModeCard > div:nth-of-type(2) {
+        justify-content: flex-start;
+    }
+}

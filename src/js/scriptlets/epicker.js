@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -37,14 +37,13 @@ if ( typeof vAPI !== 'object' || vAPI === null ) {
 /******************************************************************************/
 
 const epickerId = vAPI.randomToken();
-let epickerConnectionId;
 
 let pickerRoot = document.querySelector(`[${vAPI.sessionId}]`);
 if ( pickerRoot !== null ) { return; }
 
 let pickerBootArgs;
 
-const reCosmeticAnchor = /^#[$?]?#/;
+const reCosmeticAnchor = /^#(\$|\?|\$\?)?#/;
 
 const netFilterCandidates = [];
 const cosmeticFilterCandidates = [];
@@ -144,7 +143,7 @@ const highlightElements = function(elems, force) {
         );
     }
 
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerFramePort.postMessage({
         what: 'svgPaths',
         ocean: `M0 0h${ow}v${oh}h-${ow}z`,
         islands: islands.join(''),
@@ -756,9 +755,17 @@ const filterToDOMInterface = (( ) => {
         try {
             const o = JSON.parse(raw);
             elems = vAPI.domFilterer.createProceduralFilter(o).exec();
-            style = o.action === undefined || o.action[0] !== 'style'
-                ? vAPI.hideStyle
-                : o.action[1];
+            switch ( o.action && o.action[0] || '' ) {
+            case '':
+            case 'remove':
+                style = vAPI.hideStyle;
+                break;
+            case 'style':
+                style = o.action[1];
+                break;
+            default:
+                break;
+            }
         } catch(ex) {
             return;
         }
@@ -809,6 +816,7 @@ const filterToDOMInterface = (( ) => {
         const rootElem = document.documentElement;
         for ( const { elem, style } of lastResultset ) {
             if ( elem === pickerRoot ) { continue; }
+            if ( style === undefined ) { continue; }
             if ( elem === rootElem && style === vAPI.hideStyle ) { continue; }
             let styleToken = vAPI.epickerStyleProxies.get(style);
             if ( styleToken === undefined ) {
@@ -868,7 +876,7 @@ const filterToDOMInterface = (( ) => {
 
 /******************************************************************************/
 
-const onOptmizeCandidates = function(details) {
+const onOptimizeCandidates = function(details) {
     const { candidates } = details;
     const results = [];
     for ( const paths of candidates ) {
@@ -891,7 +899,7 @@ const onOptmizeCandidates = function(details) {
         if ( r !== 0 ) { return r; }
         return a.selector.length - b.selector.length;
     });
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerFramePort.postMessage({
         what: 'candidatesOptimized',
         candidates: results.map(a => a.selector),
         slot: details.slot,
@@ -901,7 +909,7 @@ const onOptmizeCandidates = function(details) {
 /******************************************************************************/
 
 const showDialog = function(options) {
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerFramePort.postMessage({
         what: 'showDialog',
         url: self.location.href,
         netFilters: netFilterCandidates,
@@ -1132,16 +1140,13 @@ const quitPicker = function() {
     self.removeEventListener('resize', onViewportChanged, { passive: true });
     self.removeEventListener('keydown', onKeyPressed, true);
     vAPI.shutdown.remove(quitPicker);
-    vAPI.MessagingConnection.disconnectFrom(epickerConnectionId);
-    vAPI.MessagingConnection.removeListener(onConnectionMessage);
+    pickerFramePort.close();
+    pickerFramePort = undefined;
     vAPI.userStylesheet.remove(pickerCSS);
     vAPI.userStylesheet.apply();
-
     if ( pickerRoot === null ) { return; }
-
     pickerRoot.remove();
     pickerRoot = null;
-
     self.focus();
 };
 
@@ -1156,7 +1161,7 @@ const onDialogMessage = function(msg) {
             }
             break;
         case 'optimizeCandidates':
-            onOptmizeCandidates(msg);
+            onOptimizeCandidates(msg);
             break;
         case 'dialogCreate':
             filterToDOMInterface.queryAll(msg);
@@ -1167,7 +1172,7 @@ const onDialogMessage = function(msg) {
             const resultset = filterToDOMInterface.queryAll(msg) || [];
             highlightElements(resultset.map(a => a.elem), true);
             if ( msg.filter === '!' ) { break; }
-            vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+            pickerFramePort.postMessage({
                 what: 'resultsetDetails',
                 count: resultset.length,
                 opt: resultset.length !== 0 ? resultset[0].opt : undefined,
@@ -1206,23 +1211,6 @@ const onDialogMessage = function(msg) {
 
 /******************************************************************************/
 
-const onConnectionMessage = function(msg) {
-    if ( msg.from !== `epickerDialog-${epickerId}` ) { return; }
-    switch ( msg.what ) {
-        case 'connectionRequested':
-            epickerConnectionId = msg.id;
-            return true;
-        case 'connectionBroken':
-            quitPicker();
-            break;
-        case 'connectionMessage':
-            onDialogMessage(msg.payload);
-            break;
-    }
-};
-
-/******************************************************************************/
-
 // epicker-ui.html will be injected in the page through an iframe, and
 // is a sandboxed so as to prevent the page from interfering with its
 // content and behavior.
@@ -1240,17 +1228,13 @@ const onConnectionMessage = function(msg) {
 // of the iframe, and cannot interfere with its style properties. However the
 // page can remove the iframe.
 
-// We need extra messaging capabilities + fetch/process picker arguments.
+// fetch/process picker arguments.
 {
-    const results = await Promise.all([
-        vAPI.messaging.extend(),
-        vAPI.messaging.send('elementPicker', { what: 'elementPickerArguments' }),
-    ]);
-    if ( results[0] !== true ) { return; }
-    pickerBootArgs = results[1];
-    if ( typeof pickerBootArgs !== 'object' || pickerBootArgs === null ) {
-        return;
-    }
+    pickerBootArgs = await vAPI.messaging.send('elementPicker', {
+        what: 'elementPickerArguments',
+    });
+    if ( typeof pickerBootArgs !== 'object' ) { return; }
+    if ( pickerBootArgs === null ) { return; }
     // Restore net filter union data if origin is the same.
     const eprom = pickerBootArgs.eprom || null;
     if ( eprom !== null && eprom.lastNetFilterSession === lastNetFilterSession ) {
@@ -1293,12 +1277,12 @@ const pickerCSSStyle = [
     'width: 100%',
     'z-index: 2147483647',
     ''
-];
+].join(' !important;\n');
 
 
 const pickerCSS = `
 :root > [${vAPI.sessionId}] {
-    ${pickerCSSStyle.join(' !important;')}
+    ${pickerCSSStyle}
 }
 :root > [${vAPI.sessionId}-loaded] {
     visibility: visible !important;
@@ -1317,7 +1301,7 @@ document.documentElement.append(pickerRoot);
 
 vAPI.shutdown.add(quitPicker);
 
-vAPI.MessagingConnection.addListener(onConnectionMessage);
+let pickerFramePort;
 
 {
     const url = new URL(pickerBootArgs.pickerURL);
@@ -1325,10 +1309,24 @@ vAPI.MessagingConnection.addListener(onConnectionMessage);
     if ( pickerBootArgs.zap ) {
         url.searchParams.set('zap', '1');
     }
-    pickerRoot.addEventListener("load", function() {
-      pickerRoot.setAttribute(`${vAPI.sessionId}-loaded`, "");
-    });
-    pickerRoot.src = url.href;
+    pickerRoot.addEventListener('load', ( ) => {
+        const channel = new MessageChannel();
+        pickerFramePort = channel.port1;
+        pickerFramePort.onmessage = ev => {
+            const msg = ev.data || {};
+            onDialogMessage(msg);
+        };
+        pickerFramePort.onmessageerror = ( ) => {
+            quitPicker();
+        };
+        pickerRoot.setAttribute(`${vAPI.sessionId}-loaded`, '');
+        pickerRoot.contentWindow.postMessage(
+            { what: 'epickerStart' },
+            url.href,
+            [ channel.port2 ]
+        );
+    }, { once: true });
+    pickerRoot.contentWindow.location = url.href;
 }
 
 /******************************************************************************/

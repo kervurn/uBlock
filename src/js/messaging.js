@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -28,6 +28,7 @@
 import publicSuffixList from '../lib/publicsuffixlist/publicsuffixlist.js';
 import punycode from '../lib/punycode.js';
 
+import { filteringBehaviorChanged } from './broadcast.js';
 import cacheStorage from './cachestorage.js';
 import cosmeticFilteringEngine from './cosmetic-filtering.js';
 import htmlFilteringEngine from './html-filtering.js';
@@ -35,7 +36,6 @@ import logger from './logger.js';
 import lz4Codec from './lz4.js';
 import io from './assets.js';
 import scriptletFilteringEngine from './scriptlet-filtering.js';
-import staticExtFilteringEngine from './static-ext-filtering.js';
 import staticFilteringReverseLookup from './reverselookup.js';
 import staticNetFilteringEngine from './static-net-filtering.js';
 import µb from './background.js';
@@ -44,7 +44,7 @@ import { denseBase64 } from './base64-custom.js';
 import { dnrRulesetFromRawLists } from './static-dnr-filtering.js';
 import { i18n$ } from './i18n.js';
 import { redirectEngine } from './redirect-engine.js';
-import { StaticFilteringParser } from './static-filtering-parser.js';
+import * as sfp from './static-filtering-parser.js';
 
 import {
     permanentFirewall,
@@ -109,6 +109,7 @@ const onMessage = function(request, sender, callback) {
             dontCache: true,
             needSourceURL: true,
         }).then(result => {
+            result.trustedSource = µb.isTrustedList(result.assetKey);
             callback(result);
         });
         return;
@@ -159,7 +160,11 @@ const onMessage = function(request, sender, callback) {
             );
         }
         const options = {
-            extensionPaths: redirectEngine.getResourceDetails(),
+            extensionPaths: redirectEngine.getResourceDetails().filter(e =>
+                typeof e[1].extensionPath === 'string' && e[1].extensionPath !== ''
+            ).map(e =>
+                [ e[0], e[1].extensionPath ]
+            ),
             env: vAPI.webextFlavor.env,
         };
         const t0 = Date.now();
@@ -197,14 +202,6 @@ const onMessage = function(request, sender, callback) {
                 rule.action.redirect.transform !== undefined;
             const runtime = Date.now() - t0;
             const { ruleset } = network;
-            const out = [
-                `dnrRulesetFromRawLists(${JSON.stringify(listNames, null, 2)})`,
-                `Run time: ${runtime} ms`,
-                `Filters count: ${network.filterCount}`,
-                `Accepted filter count: ${network.acceptedFilterCount}`,
-                `Rejected filter count: ${network.rejectedFilterCount}`,
-                `Resulting DNR rule count: ${ruleset.length}`,
-            ];
             const good = ruleset.filter(rule =>
                 isUnsupported(rule) === false &&
                 isRegex(rule) === false &&
@@ -212,7 +209,9 @@ const onMessage = function(request, sender, callback) {
                 isCsp(rule) === false &&
                 isRemoveparam(rule) === false
             );
-            out.push(`+ Good filters (${good.length}): ${JSON.stringify(good, replacer, 2)}`);
+            const unsupported = ruleset.filter(rule =>
+                isUnsupported(rule)
+            );
             const regexes = ruleset.filter(rule =>
                 isUnsupported(rule) === false &&
                 isRegex(rule) &&
@@ -220,32 +219,42 @@ const onMessage = function(request, sender, callback) {
                 isCsp(rule) === false &&
                 isRemoveparam(rule) === false
             );
-            out.push(`+ Regex-based filters (${regexes.length}): ${JSON.stringify(regexes, replacer, 2)}`);
             const redirects = ruleset.filter(rule =>
                 isUnsupported(rule) === false &&
                 isRedirect(rule)
             );
-            out.push(`+ 'redirect=' filters (${redirects.length}): ${JSON.stringify(redirects, replacer, 2)}`);
             const headers = ruleset.filter(rule =>
                 isUnsupported(rule) === false &&
                 isCsp(rule)
             );
-            out.push(`+ 'csp=' filters (${headers.length}): ${JSON.stringify(headers, replacer, 2)}`);
             const removeparams = ruleset.filter(rule =>
                 isUnsupported(rule) === false &&
                 isRemoveparam(rule)
             );
+            const out = [
+                `dnrRulesetFromRawLists(${JSON.stringify(listNames, null, 2)})`,
+                `Run time: ${runtime} ms`,
+                `Filters count: ${network.filterCount}`,
+                `Accepted filter count: ${network.acceptedFilterCount}`,
+                `Rejected filter count: ${network.rejectedFilterCount}`,
+                `Un-DNR-able filter count: ${unsupported.length}`,
+                `Resulting DNR rule count: ${ruleset.length}`,
+            ];
+            out.push(`+ Good filters (${good.length}): ${JSON.stringify(good, replacer, 2)}`);
+            out.push(`+ Regex-based filters (${regexes.length}): ${JSON.stringify(regexes, replacer, 2)}`);
+            out.push(`+ 'redirect=' filters (${redirects.length}): ${JSON.stringify(redirects, replacer, 2)}`);
+            out.push(`+ 'csp=' filters (${headers.length}): ${JSON.stringify(headers, replacer, 2)}`);
             out.push(`+ 'removeparam=' filters (${removeparams.length}): ${JSON.stringify(removeparams, replacer, 2)}`);
-            const bad = ruleset.filter(rule =>
-                isUnsupported(rule)
-            );
-            out.push(`+ Unsupported filters (${bad.length}): ${JSON.stringify(bad, replacer, 2)}`);
+            out.push(`+ Unsupported filters (${unsupported.length}): ${JSON.stringify(unsupported, replacer, 2)}`);
             out.push(`+ generichide exclusions (${network.generichideExclusions.length}): ${JSON.stringify(network.generichideExclusions, replacer, 2)}`);
-            out.push(`+ Cosmetic filters: ${result.specificCosmetic.size}`);
-            for ( const details of result.specificCosmetic ) {
-                out.push(`    ${JSON.stringify(details)}`);
+            if ( result.specificCosmetic ) {
+                out.push(`+ Cosmetic filters: ${result.specificCosmetic.size}`);
+                for ( const details of result.specificCosmetic ) {
+                    out.push(`    ${JSON.stringify(details)}`);
+                }
+            } else {
+                out.push('  Cosmetic filters: 0');
             }
-
             callback(out.join('\n'));
         });
         return;
@@ -290,6 +299,10 @@ const onMessage = function(request, sender, callback) {
         response = getDomainNames(request.targets);
         break;
 
+    case 'getTrustedScriptletTokens':
+        response = redirectEngine.getTrustedScriptletTokens();
+        break;
+
     case 'getWhitelist':
         response = {
             whitelist: µb.arrayFromWhitelist(µb.netWhitelist),
@@ -305,8 +318,16 @@ const onMessage = function(request, sender, callback) {
         µb.elementPickerExec(request.tabId, 0, request.targetURL, request.zap);
         break;
 
+    case 'loggerDisabled':
+        µb.clearInMemoryFilters();
+        break;
+
     case 'gotoURL':
         µb.openNewTab(request.details);
+        break;
+
+    case 'readyToFilter':
+        response = µb.readyToFilter;
         break;
 
     // https://github.com/uBlockOrigin/uBlock-issues/issues/1954
@@ -330,6 +351,7 @@ const onMessage = function(request, sender, callback) {
     case 'setWhitelist':
         µb.netWhitelist = µb.whitelistFromString(request.whitelist);
         µb.saveWhitelist();
+        filteringBehaviorChanged();
         break;
 
     case 'toggleHostnameSwitch':
@@ -489,9 +511,10 @@ const popupDataFromTabId = function(tabId, tabTitle) {
         popupPanelDisabledSections: µbhs.popupPanelDisabledSections,
         popupPanelLockedSections: µbhs.popupPanelLockedSections,
         popupPanelHeightMode: µbhs.popupPanelHeightMode,
-        tabId: tabId,
-        tabTitle: tabTitle,
-        tooltipsDisabled: µbus.tooltipsDisabled
+        tabId,
+        tabTitle,
+        tooltipsDisabled: µbus.tooltipsDisabled,
+        hasUnprocessedRequest: vAPI.net && vAPI.net.hasUnprocessedRequest(tabId),
     };
 
     if ( µbhs.uiPopupConfig !== 'unset' ) {
@@ -581,6 +604,53 @@ const getElementCount = async function(tabId, what) {
     return total;
 };
 
+const launchReporter = async function(request) {
+    const pageStore = µb.pageStoreFromTabId(request.tabId);
+    if ( pageStore === null ) { return; }
+    if ( pageStore.hasUnprocessedRequest ) {
+        request.popupPanel.hasUnprocessedRequest = true;
+    }
+
+    const entries = await io.getUpdateAges({
+        filters: µb.selectedFilterLists.slice()
+    });
+    const shouldUpdateLists = [];
+    for ( const entry of entries ) {
+        if ( entry.age < (2 * 60 * 60 * 1000) ) { continue; }
+        shouldUpdateLists.push(entry.assetKey);
+    }
+
+    // https://github.com/gorhill/uBlock/commit/6efd8eb#commitcomment-107523558
+    //   Important: for whatever reason, not using `document_start` causes the
+    //   Promise returned by `tabs.executeScript()` to resolve only when the
+    //   associated tab is closed.
+    const cosmeticSurveyResults = await vAPI.tabs.executeScript(request.tabId, {
+        allFrames: true,
+        file: '/js/scriptlets/cosmetic-report.js',
+        matchAboutBlank: true,
+        runAt: 'document_start',
+    });
+
+    const filters = cosmeticSurveyResults.reduce((a, v) => {
+        if ( Array.isArray(v) ) { a.push(...v); }
+        return a;
+    }, []);
+    // Remove duplicate, truncate too long filters.
+    if ( filters.length !== 0 ) {
+        request.popupPanel.extended = Array.from(
+            new Set(filters.map(s => s.length <= 64 ? s : `${s.slice(0, 64)}…`))
+        );
+    }
+
+    const supportURL = new URL(vAPI.getURL('support.html'));
+    supportURL.searchParams.set('pageURL', request.pageURL);
+    supportURL.searchParams.set('popupPanel', JSON.stringify(request.popupPanel));
+    if ( shouldUpdateLists.length ) {
+        supportURL.searchParams.set('shouldUpdateLists', JSON.stringify(shouldUpdateLists));
+    }
+    return supportURL.href;
+};
+
 const onMessage = function(request, sender, callback) {
     // Async
     switch ( request.what ) {
@@ -610,21 +680,26 @@ const onMessage = function(request, sender, callback) {
     let response;
 
     switch ( request.what ) {
+    case 'dismissUnprocessedRequest':
+        vAPI.net.removeUnprocessedRequest(request.tabId);
+        µb.updateToolbarIcon(request.tabId, 0b110);
+        break;
+
     case 'hasPopupContentChanged': {
         const pageStore = µb.pageStoreFromTabId(request.tabId);
         const lastModified = pageStore ? pageStore.contentLastModified : 0;
         response = lastModified !== request.contentLastModified;
         break;
     }
+
     case 'launchReporter': {
-        const pageStore = µb.pageStoreFromTabId(request.tabId);
-        if ( pageStore === null ) { break; }
-        const supportURL = new URL(vAPI.getURL('support.html'));
-        supportURL.searchParams.set('pageURL', request.pageURL);
-        supportURL.searchParams.set('popupPanel', request.popupPanel);
-        µb.openNewTab({ url: supportURL.href, select: true, index: -1 });
+        launchReporter(request).then(url => {
+            if ( typeof url !== 'string' ) { return; }
+            µb.openNewTab({ url, select: true, index: -1 });
+        });
         break;
     }
+
     case 'revertFirewallRules':
         // TODO: use Set() to message around sets of hostnames
         sessionFirewall.copyRules(
@@ -773,8 +848,20 @@ const retrieveContentScriptParameters = async function(sender, request) {
     // https://github.com/uBlockOrigin/uBlock-issues/issues/688#issuecomment-748179731
     //   For non-network URIs, scriptlet injection is deferred to here. The
     //   effective URL is available here in `request.url`.
-    if ( request.needScriptlets ) {
-        response.scriptlets = scriptletFilteringEngine.injectNow(request);
+    if ( logger.enabled || request.needScriptlets ) {
+        const scriptletDetails = scriptletFilteringEngine.injectNow(request);
+        if ( scriptletDetails !== undefined ) {
+            if ( logger.enabled ) {
+                scriptletFilteringEngine.logFilters(
+                    tabId,
+                    request.url,
+                    scriptletDetails.filters
+                );
+            }
+            if ( request.needScriptlets ) {
+                response.scriptletDetails = scriptletDetails;
+            }
+        }
     }
 
     // https://github.com/NanoMeow/QuickReports/issues/6#issuecomment-414516623
@@ -821,6 +908,10 @@ const onMessage = function(request, sender, callback) {
     switch ( request.what ) {
     case 'cosmeticFiltersInjected':
         cosmeticFilteringEngine.addToSelectorCache(request);
+        break;
+
+    case 'disableGenericCosmeticFilteringSurveyor':
+        cosmeticFilteringEngine.disableSurveyor(request);
         break;
 
     case 'getCollapsibleBlockedRequests':
@@ -907,7 +998,7 @@ const onMessage = function(request, sender, callback) {
                 zap: µb.epickerArgs.zap,
                 eprom: µb.epickerArgs.eprom,
                 pickerURL: vAPI.getURL(
-                    `/web_accessible_resources/epicker-ui.html?secret=${vAPI.warSecret()}`
+                    `/web_accessible_resources/epicker-ui.html?secret=${vAPI.warSecret.short()}`
                 ),
             });
             µb.epickerArgs.target = '';
@@ -1354,6 +1445,26 @@ const getSupportData = async function() {
         filterset.push(line);
     }
 
+    const now = Date.now();
+
+    const formatDelayFromNow = list => {
+        const time = list.writeTime;
+        if ( typeof time !== 'number' || time === 0 ) { return 'never'; }
+        if ( (time || 0) === 0 ) { return '?'; }
+        const delayInSec = (now - time) / 1000;
+        const days = (delayInSec / 86400) | 0;
+        const hours = (delayInSec % 86400) / 3600 | 0;
+        const minutes = (delayInSec % 3600) / 60 | 0;
+        const parts = [];
+        if ( days > 0 ) { parts.push(`${days}d`); }
+        if ( hours > 0 ) { parts.push(`${hours}h`); }
+        if ( minutes > 0 ) { parts.push(`${minutes}m`); }
+        if ( parts.length === 0 ) { parts.push('now'); }
+        const out = parts.join('.');
+        if ( list.diffUpdated ) { return `${out} Δ`; }
+        return out;
+    };
+
     const lists = µb.availableFilterLists;
     let defaultListset = {};
     let addedListset = {};
@@ -1368,20 +1479,7 @@ const getSupportData = async function() {
             if ( typeof list.entryCount === 'number' ) {
                 listDetails.push(`${list.entryCount}-${list.entryCount-list.entryUsedCount}`);
             }
-            if ( typeof list.writeTime !== 'number' || list.writeTime === 0 ) {
-                listDetails.push('never');
-            } else {
-                const delta = (Date.now() - list.writeTime) / 1000 | 0;
-                const days = (delta / 86400) | 0;
-                const hours = (delta % 86400) / 3600 | 0;
-                const minutes = (delta % 3600) / 60 | 0;
-                const parts = [];
-                if ( days > 0 ) { parts.push(`${days}d`); }
-                if ( hours > 0 ) { parts.push(`${hours}h`); }
-                if ( minutes > 0 ) { parts.push(`${minutes}m`); }
-                if ( parts.length === 0 ) { parts.push('now'); }
-                listDetails.push(parts.join('.'));
-            }
+            listDetails.push(formatDelayFromNow(list));
         }
         if ( list.isDefault || listKey === µb.userFiltersPath ) {
             if ( used ) {
@@ -1398,13 +1496,15 @@ const getSupportData = async function() {
     }
     if ( Object.keys(addedListset).length === 0 ) {
         addedListset = undefined;
-    } else if ( Object.keys(addedListset).length > 20 ) {
+    } else {
         const added = Object.keys(addedListset);
-        const truncated = added.slice(20);
+        const truncated = added.slice(12);
         for ( const key of truncated ) {
             delete addedListset[key];
         }
-        addedListset[`[${truncated.length} lists not shown]`] = '[too many]';
+        if ( truncated.length !== 0 ) {
+            addedListset[`[${truncated.length} lists not shown]`] = '[too many]';
+        }
     }
     if ( Object.keys(removedListset).length === 0 ) {
         removedListset = undefined;
@@ -1450,8 +1550,8 @@ const getSupportData = async function() {
             sessionURLFiltering.toArray(),
             []
         ),
-        modifiedUserSettings,
-        modifiedHiddenSettings,
+        'userSettings': modifiedUserSettings,
+        'hiddenSettings': modifiedHiddenSettings,
         supportStats: µb.supportStats,
     };
 };
@@ -1465,7 +1565,9 @@ const onMessage = function(request, sender, callback) {
         });
 
     case 'getLists':
-        return getLists(callback);
+        return µb.isReadyPromise.then(( ) => {
+            getLists(callback);
+        });
 
     case 'getLocalData':
         return getLocalData().then(localData => {
@@ -1481,6 +1583,7 @@ const onMessage = function(request, sender, callback) {
 
     case 'readUserFilters':
         return µb.loadUserFilters().then(result => {
+            result.trustedSource = µb.isTrustedList(µb.userFiltersPath);
             callback(result);
         });
 
@@ -1507,11 +1610,8 @@ const onMessage = function(request, sender, callback) {
         response = {};
         if ( (request.hintUpdateToken || 0) === 0 ) {
             response.redirectResources = redirectEngine.getResourceDetails();
-            response.preparseDirectiveTokens =
-                StaticFilteringParser.utils.preparser.getTokens(vAPI.webextFlavor.env);
-            response.preparseDirectiveHints =
-                StaticFilteringParser.utils.preparser.getHints();
-            response.expertMode = µb.hiddenSettings.filterAuthorMode;
+            response.preparseDirectiveEnv = vAPI.webextFlavor.env.slice();
+            response.preparseDirectiveHints = sfp.utils.preparser.getHints();
         }
         if ( request.hintUpdateToken !== µb.pageStoresToken ) {
             response.originHints = getOriginHints();
@@ -1538,9 +1638,10 @@ const onMessage = function(request, sender, callback) {
         }
         break;
 
-    case 'purgeCache':
-        io.purge(request.assetKey);
-        io.remove('compiled/' + request.assetKey);
+    case 'purgeCaches':
+        for ( const assetKey of request.assetKeys ) {
+            io.purge(assetKey);
+        }
         break;
 
     case 'readHiddenSettings':
@@ -1597,22 +1698,18 @@ const getLoggerData = async function(details, activeTabId, callback) {
         activeTabId,
         colorBlind: µb.userSettings.colorBlindFriendly,
         entries: logger.readAll(details.ownerId),
-        filterAuthorMode: µb.hiddenSettings.filterAuthorMode,
         tabIdsToken: µb.pageStoresToken,
         tooltips: µb.userSettings.tooltipsDisabled === false
     };
     if ( µb.pageStoresToken !== details.tabIdsToken ) {
-        const tabIds = new Map();
+        response.tabIds = [];
         for ( const [ tabId, pageStore ] of µb.pageStores ) {
-            const { rawURL } = pageStore;
-            if (
-                rawURL.startsWith(extensionOriginURL) === false ||
-                rawURL.startsWith(documentBlockedURL)
-            ) {
-                tabIds.set(tabId, pageStore.title);
+            const { rawURL, title } = pageStore;
+            if ( rawURL.startsWith(extensionOriginURL) ) {
+                if ( rawURL.startsWith(documentBlockedURL) === false ) { continue; }
             }
+            response.tabIds.push([ tabId, title ]);
         }
-        response.tabIds = Array.from(tabIds);
     }
     if ( activeTabId ) {
         const pageStore = µb.pageStoreFromTabId(activeTabId);
@@ -1676,42 +1773,11 @@ const getURLFilteringData = function(details) {
     return response;
 };
 
-const compileTemporaryException = function(filter) {
-    const parser = new StaticFilteringParser({
-        nativeCssHas: vAPI.webextFlavor.env.includes('native_css_has'),
-    });
-    parser.analyze(filter);
-    if ( parser.shouldDiscard() ) { return; }
-    return staticExtFilteringEngine.compileTemporary(parser);
-};
-
-const toggleTemporaryException = function(details) {
-    const result = compileTemporaryException(details.filter);
-    if ( result === undefined ) { return false; }
-    const { session, selector } = result;
-    if ( session.has(1, selector) ) {
-        session.remove(1, selector);
-        return false;
-    }
-    session.add(1, selector);
-    return true;
-};
-
-const hasTemporaryException = function(details) {
-    const result = compileTemporaryException(details.filter);
-    if ( result === undefined ) { return false; }
-    const { session, selector } = result;
-    return session && session.has(1, selector);
-};
-
 const onMessage = function(request, sender, callback) {
     // Async
     switch ( request.what ) {
     case 'readAll':
-        if (
-            logger.ownerId !== undefined &&
-            logger.ownerId !== request.ownerId
-        ) {
+        if ( logger.ownerId !== undefined && logger.ownerId !== request.ownerId ) {
             return callback({ unavailable: true });
         }
         vAPI.tabs.getCurrent().then(tab => {
@@ -1719,6 +1785,13 @@ const onMessage = function(request, sender, callback) {
         });
         return;
 
+    case 'toggleInMemoryFilter': {
+        const promise = µb.hasInMemoryFilter(request.filter)
+            ? µb.removeInMemoryFilter(request.filter)
+            : µb.addInMemoryFilter(request.filter);
+        promise.then(status => { callback(status); });
+        return;
+    }
     default:
         break;
     }
@@ -1727,14 +1800,14 @@ const onMessage = function(request, sender, callback) {
     let response;
 
     switch ( request.what ) {
-    case 'hasTemporaryException':
-        response = hasTemporaryException(request);
+    case 'hasInMemoryFilter':
+        response = µb.hasInMemoryFilter(request.filter);
         break;
 
     case 'releaseView':
-        if ( request.ownerId === logger.ownerId ) {
-            logger.ownerId = undefined;
-        }
+        if ( request.ownerId !== logger.ownerId ) { break; }
+        logger.ownerId = undefined;
+        µb.clearInMemoryFilters();
         break;
 
     case 'saveURLFilteringRules':
@@ -1757,10 +1830,6 @@ const onMessage = function(request, sender, callback) {
         response = getURLFilteringData(request);
         break;
 
-    case 'toggleTemporaryException':
-        response = toggleTemporaryException(request);
-        break;
-
     default:
         return vAPI.messaging.UNHANDLED;
     }
@@ -1772,6 +1841,54 @@ vAPI.messaging.listen({
     name: 'loggerUI',
     listener: onMessage,
     privileged: true,
+});
+
+// <<<<< end of local scope
+}
+
+/******************************************************************************/
+/******************************************************************************/
+
+// Channel:
+//      domInspectorContent
+//      unprivileged
+
+{
+// >>>>> start of local scope
+
+const onMessage = (request, sender, callback) => {
+    // Async
+    switch ( request.what ) {
+    default:
+        break;
+    }
+    // Sync
+    let response;
+    switch ( request.what ) {
+    case 'getInspectorArgs':
+        const bc = new globalThis.BroadcastChannel('contentInspectorChannel');
+        bc.postMessage({
+            what: 'contentInspectorChannel',
+            tabId: sender.tabId || 0,
+            frameId: sender.frameId || 0,
+        });
+        response = {
+            inspectorURL: vAPI.getURL(
+                `/web_accessible_resources/dom-inspector.html?secret=${vAPI.warSecret.short()}`
+            ),
+        };
+        break;
+    default:
+        return vAPI.messaging.UNHANDLED;
+    }
+
+    callback(response);
+};
+
+vAPI.messaging.listen({
+    name: 'domInspectorContent',
+    listener: onMessage,
+    privileged: false,
 });
 
 // <<<<< end of local scope
@@ -1993,6 +2110,21 @@ const onMessage = function(request, sender, callback) {
             url: `/asset-viewer.html?url=${url}&title=${title}&subscribe=1${hash}`,
             select: true,
         });
+        break;
+
+    case 'updateLists':
+        const listkeys = request.listkeys.split(',').filter(s => s !== '');
+        if ( listkeys.length === 0 ) { return; }
+        for ( const listkey of listkeys ) {
+            io.purge(listkey);
+            io.remove(`compiled/${listkey}`);
+        }
+        µb.scheduleAssetUpdater(0);
+        µb.openNewTab({
+            url: 'dashboard.html#3p-filters.html',
+            select: true,
+        });
+        io.updateStart({ delay: 100, auto: request.manual !== true });
         break;
 
     default:

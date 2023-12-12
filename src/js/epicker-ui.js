@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2014-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,8 @@
 import './codemirror/ubo-static-filtering.js';
 
 import { hostnameFromURI } from './uri-utils.js';
-import { StaticFilteringParser } from './static-filtering-parser.js';
+import punycode from '../lib/punycode.js';
+import * as sfp from './static-filtering-parser.js';
 
 /******************************************************************************/
 /******************************************************************************/
@@ -50,20 +51,17 @@ const svgOcean = svgRoot.children[0];
 const svgIslands = svgRoot.children[1];
 const NoPaths = 'M0 0';
 
-const reCosmeticAnchor = /^#[$?]?#/;
+const reCosmeticAnchor = /^#(\$|\?|\$\?)?#/;
 
-const epickerId = (( ) => {
+{
     const url = new URL(self.location.href);
     if ( url.searchParams.has('zap') ) {
         pickerRoot.classList.add('zap');
     }
-    return url.searchParams.get('epid');
-})();
-if ( epickerId === null ) { return; }
+}
 
 const docURL = new URL(vAPI.getURL(''));
 
-let epickerConnectionId;
 let resultsetOpt;
 
 let netFilterCandidates = [];
@@ -88,13 +86,10 @@ const cmEditor = new CodeMirror(document.querySelector('.codeMirrorContainer'), 
 
 vAPI.messaging.send('dashboard', {
     what: 'getAutoCompleteDetails'
-}).then(response => {
+}).then(hints => {
     // For unknown reasons, `instanceof Object` does not work here in Firefox.
-    if ( typeof response !== 'object' ) { return; }
-    const mode = cmEditor.getMode();
-    if ( mode.setHints instanceof Function ) {
-        mode.setHints(response);
-    }
+    if ( hints instanceof Object === false ) { return; }
+    cmEditor.setOption('uboHints', hints);
 });
 
 /******************************************************************************/
@@ -110,13 +105,12 @@ const rawFilterFromTextarea = function() {
 const filterFromTextarea = function() {
     const filter = rawFilterFromTextarea();
     if ( filter === '' ) { return ''; }
-    const sfp = staticFilteringParser;
-    sfp.analyze(filter);
-    sfp.analyzeExtra();
-    if ( sfp.shouldDiscard() ) { return '!'; }
-    if ( sfp.category === sfp.CATStaticExtFilter ) {
-        if ( sfp.hasFlavor(sfp.BITFlavorExtCosmetic) === false ) { return '!'; }
-    } else if ( sfp.category !== sfp.CATStaticNetFilter ) {
+    const parser = staticFilteringParser;
+    parser.parse(filter);
+    if ( parser.isFilter() === false ) { return '!'; }
+    if ( parser.isExtendedFilter() ) {
+        if ( parser.isCosmeticFilter() === false ) { return '!'; }
+    } else if ( parser.isNetworkFilter() === false ) {
         return '!';
     }
     return filter;
@@ -148,7 +142,10 @@ const renderRange = function(id, value, invert = false) {
 const userFilterFromCandidate = function(filter) {
     if ( filter === '' || filter === '!' ) { return; }
 
-    const hn = hostnameFromURI(docURL.href);
+    let hn = hostnameFromURI(docURL.href);
+    if ( hn.startsWith('xn--') ) {
+        hn = punycode.toUnicode(hn);
+    }
 
     // Cosmetic filter?
     if ( reCosmeticAnchor.test(filter) ) {
@@ -305,7 +302,7 @@ const cosmeticCandidatesFromFilterChoice = function(filterChoice) {
         candidates.push(paths);
     }
 
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'optimizeCandidates',
         candidates,
         slot,
@@ -333,7 +330,7 @@ const onSvgClicked = function(ev) {
     // If zap mode, highlight element under mouse, this makes the zapper usable
     // on touch screens.
     if ( pickerRoot.classList.contains('zap') ) {
-        vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+        pickerContentPort.postMessage({
             what: 'zapElementAtPoint',
             mx: ev.clientX,
             my: ev.clientY,
@@ -358,7 +355,7 @@ const onSvgClicked = function(ev) {
     if ( ev.type === 'touch' ) {
         pickerRoot.classList.add('show');
     }
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'filterElementAtPoint',
         mx: ev.clientX,
         my: ev.clientY,
@@ -432,7 +429,7 @@ const onSvgTouch = (( ) => {
             pickerRoot.classList.contains('zap') &&
             svgIslands.getAttribute('d') !== NoPaths
         ) {
-            vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+            pickerContentPort.postMessage({
                 what: 'unhighlight'
             });
             return;
@@ -463,7 +460,7 @@ const onCandidateChanged = function() {
     $id('resultsetModifiers').classList.toggle(
         'hide', text === '' || text !== computedCandidate
     );
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'dialogSetFilter',
         filter,
         compiled: reCosmeticAnchor.test(filter)
@@ -476,7 +473,7 @@ const onCandidateChanged = function() {
 
 const onPreviewClicked = function() {
     const state = pickerRoot.classList.toggle('preview');
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'togglePreview',
         state,
     });
@@ -496,7 +493,7 @@ const onCreateClicked = function() {
             killCache: reCosmeticAnchor.test(candidate) === false,
         });
     }
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'dialogCreate',
         filter: candidate,
         compiled: reCosmeticAnchor.test(candidate)
@@ -578,7 +575,7 @@ const onKeyPressed = function(ev) {
         (ev.key === 'Delete' || ev.key === 'Backspace') &&
         pickerRoot.classList.contains('zap')
     ) {
-        vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+        pickerContentPort.postMessage({
             what: 'zapElementAtPoint',
             options: { stay: true },
         });
@@ -600,6 +597,11 @@ const onStartMoving = (( ) => {
     let r0 = 0, b0 = 0;
     let rMax = 0, bMax = 0;
     let timer;
+
+    const eatEvent = function(ev) {
+        ev.stopPropagation();
+        ev.preventDefault();
+    };
 
     const move = ( ) => {
         timer = undefined;
@@ -673,7 +675,7 @@ const svgListening = (( ) => {
 
     const onTimer = ( ) => {
         timer = undefined;
-        vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+        pickerContentPort.postMessage({
             what: 'highlightElementAtPoint',
             mx,
             my,
@@ -702,13 +704,6 @@ const svgListening = (( ) => {
         }
     };
 })();
-
-/******************************************************************************/
-
-const eatEvent = function(ev) {
-    ev.stopPropagation();
-    ev.preventDefault();
-};
 
 /******************************************************************************/
 
@@ -800,7 +795,7 @@ const pausePicker = function() {
 
 const unpausePicker = function() {
     pickerRoot.classList.remove('paused', 'preview');
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, {
+    pickerContentPort.postMessage({
         what: 'togglePreview',
         state: false,
     });
@@ -831,7 +826,7 @@ const startPicker = function() {
     $id('candidateFilters').addEventListener('click', onCandidateClicked);
     $stor('#resultsetDepth input').addEventListener('input', onDepthChanged);
     $stor('#resultsetSpecificity input').addEventListener('input', onSpecificityChanged);
-    staticFilteringParser = new StaticFilteringParser({
+    staticFilteringParser = new sfp.AstFilterParser({
         interactive: true,
         nativeCssHas: vAPI.webextFlavor.env.includes('native_css_has'),
     });
@@ -840,8 +835,9 @@ const startPicker = function() {
 /******************************************************************************/
 
 const quitPicker = function() {
-    vAPI.MessagingConnection.sendTo(epickerConnectionId, { what: 'quitPicker' });
-    vAPI.MessagingConnection.disconnectFrom(epickerConnectionId);
+    pickerContentPort.postMessage({ what: 'quitPicker' });
+    pickerContentPort.close();
+    pickerContentPort = undefined;
 };
 
 /******************************************************************************/
@@ -878,49 +874,27 @@ const onPickerMessage = function(msg) {
 
 /******************************************************************************/
 
-const onConnectionMessage = function(msg) {
-    switch ( msg.what ) {
-        case 'connectionBroken':
-            break;
-        case 'connectionMessage':
-            onPickerMessage(msg.payload);
-            break;
-        case 'connectionAccepted':
-            epickerConnectionId = msg.id;
-            startPicker();
-            vAPI.MessagingConnection.sendTo(epickerConnectionId, {
-                what: 'start',
-            });
-            break;
-    }
-};
+// Wait for the content script to establish communication
 
-vAPI.MessagingConnection.connectTo(
-    `epickerDialog-${epickerId}`,
-    `epicker-${epickerId}`,
-    onConnectionMessage
-);
+let pickerContentPort;
+
+globalThis.addEventListener('message', ev => {
+    const msg = ev.data || {};
+    if ( msg.what !== 'epickerStart' ) { return; }
+    if ( Array.isArray(ev.ports) === false ) { return; }
+    if ( ev.ports.length === 0 ) { return; }
+    pickerContentPort = ev.ports[0];
+    pickerContentPort.onmessage = ev => {
+        const msg = ev.data || {};
+        onPickerMessage(msg);
+    };
+    pickerContentPort.onmessageerror = ( ) => {
+        quitPicker();
+    };
+    startPicker();
+    pickerContentPort.postMessage({ what: 'start' });
+}, { once: true });
 
 /******************************************************************************/
 
 })();
-
-
-
-
-
-
-
-
-/*******************************************************************************
-
-    DO NOT:
-    - Remove the following code
-    - Add code beyond the following code
-    Reason:
-    - https://github.com/gorhill/uBlock/pull/3721
-    - uBO never uses the return value from injected content scripts
-
-**/
-
-void 0;

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2018-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -25,7 +25,7 @@
 // to "should inject content scripts?"
 //
 // https://github.com/uBlockOrigin/uBlock-issues/issues/403
-//   If the content script was not boostrapped, give it another try.
+//   If the content script was not bootstrapped, give it another try.
 
 (( ) => {
     try {

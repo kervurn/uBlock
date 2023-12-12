@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    uBlock Origin - a browser extension to block requests.
+    uBlock Origin - a comprehensive, efficient content blocker
     Copyright (C) 2018-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
@@ -37,30 +37,30 @@ import {
 // values -- the assumption being that integer operations are faster than
 // string operations.
 
-const           NO_TYPE = 0;
-const            BEACON = 1 <<  0;
-const        CSP_REPORT = 1 <<  1;
-const              FONT = 1 <<  2;
-const             IMAGE = 1 <<  4;
-const          IMAGESET = 1 <<  4;
-const        MAIN_FRAME = 1 <<  5;
-const             MEDIA = 1 <<  6;
-const            OBJECT = 1 <<  7;
-const OBJECT_SUBREQUEST = 1 <<  7;
-const              PING = 1 <<  8;
-const            SCRIPT = 1 <<  9;
-const        STYLESHEET = 1 << 10;
-const         SUB_FRAME = 1 << 11;
-const         WEBSOCKET = 1 << 12;
-const    XMLHTTPREQUEST = 1 << 13;
-const       INLINE_FONT = 1 << 14;
-const     INLINE_SCRIPT = 1 << 15;
-const             OTHER = 1 << 16;
-const         FRAME_ANY = MAIN_FRAME | SUB_FRAME;
-const          FONT_ANY = FONT | INLINE_FONT;
-const        INLINE_ANY = INLINE_FONT | INLINE_SCRIPT;
-const          PING_ANY = BEACON | CSP_REPORT | PING;
-const        SCRIPT_ANY = SCRIPT | INLINE_SCRIPT;
+export const           NO_TYPE = 0;
+export const            BEACON = 1 <<  0;
+export const        CSP_REPORT = 1 <<  1;
+export const              FONT = 1 <<  2;
+export const             IMAGE = 1 <<  4;
+export const          IMAGESET = 1 <<  4;
+export const        MAIN_FRAME = 1 <<  5;
+export const             MEDIA = 1 <<  6;
+export const            OBJECT = 1 <<  7;
+export const OBJECT_SUBREQUEST = 1 <<  7;
+export const              PING = 1 <<  8;
+export const            SCRIPT = 1 <<  9;
+export const        STYLESHEET = 1 << 10;
+export const         SUB_FRAME = 1 << 11;
+export const         WEBSOCKET = 1 << 12;
+export const    XMLHTTPREQUEST = 1 << 13;
+export const       INLINE_FONT = 1 << 14;
+export const     INLINE_SCRIPT = 1 << 15;
+export const             OTHER = 1 << 16;
+export const         FRAME_ANY = MAIN_FRAME | SUB_FRAME;
+export const          FONT_ANY = FONT | INLINE_FONT;
+export const        INLINE_ANY = INLINE_FONT | INLINE_SCRIPT;
+export const          PING_ANY = BEACON | CSP_REPORT | PING;
+export const        SCRIPT_ANY = SCRIPT | INLINE_SCRIPT;
 
 const typeStrToIntMap = {
            'no_type': NO_TYPE,
@@ -84,9 +84,51 @@ const typeStrToIntMap = {
              'other': OTHER,
 };
 
+export const    METHOD_NONE = 0;
+export const METHOD_CONNECT = 1 << 1;
+export const  METHOD_DELETE = 1 << 2;
+export const     METHOD_GET = 1 << 3;
+export const    METHOD_HEAD = 1 << 4;
+export const METHOD_OPTIONS = 1 << 5;
+export const   METHOD_PATCH = 1 << 6;
+export const    METHOD_POST = 1 << 7;
+export const     METHOD_PUT = 1 << 8;
+
+const methodStrToBitMap = {
+           '': METHOD_NONE,
+    'connect': METHOD_CONNECT,
+     'delete': METHOD_DELETE,
+        'get': METHOD_GET,
+       'head': METHOD_HEAD,
+    'options': METHOD_OPTIONS,
+      'patch': METHOD_PATCH,
+       'post': METHOD_POST,
+        'put': METHOD_PUT,
+    'CONNECT': METHOD_CONNECT,
+     'DELETE': METHOD_DELETE,
+        'GET': METHOD_GET,
+       'HEAD': METHOD_HEAD,
+    'OPTIONS': METHOD_OPTIONS,
+      'PATCH': METHOD_PATCH,
+       'POST': METHOD_POST,
+        'PUT': METHOD_PUT,
+};
+
+const methodBitToStrMap = new Map([
+    [ METHOD_NONE, '' ],
+    [ METHOD_CONNECT, 'connect' ],
+    [ METHOD_DELETE, 'delete' ],
+    [ METHOD_GET, 'get' ],
+    [ METHOD_HEAD, 'head' ],
+    [ METHOD_OPTIONS, 'options' ],
+    [ METHOD_PATCH, 'patch' ],
+    [ METHOD_POST, 'post' ],
+    [ METHOD_PUT, 'put' ],
+]);
+
 /******************************************************************************/
 
-const FilteringContext = class {
+export const FilteringContext = class {
     constructor(other) {
         if ( other instanceof FilteringContext ) {
             return this.fromFilteringContext(other);
@@ -94,7 +136,8 @@ const FilteringContext = class {
         this.tstamp = 0;
         this.realm = '';
         this.id = undefined;
-        this.itype = 0;
+        this.method = 0;
+        this.itype = NO_TYPE;
         this.stype = undefined;
         this.url = undefined;
         this.aliasURL = undefined;
@@ -132,7 +175,9 @@ const FilteringContext = class {
 
     fromFilteringContext(other) {
         this.realm = other.realm;
+        this.id = other.id;
         this.type = other.type;
+        this.method = other.method;
         this.url = other.url;
         this.hostname = other.hostname;
         this.domain = other.domain;
@@ -252,7 +297,7 @@ const FilteringContext = class {
         return this;
     }
 
-    // The idea is to minimize the amout of work done to figure out whether
+    // The idea is to minimize the amount of work done to figure out whether
     // the resource is 3rd-party to the document.
     is3rdPartyToDoc() {
         let docDomain = this.getDocDomain();
@@ -315,7 +360,7 @@ const FilteringContext = class {
         return this;
     }
 
-    // The idea is to minimize the amout of work done to figure out whether
+    // The idea is to minimize the amount of work done to figure out whether
     // the resource is 3rd-party to the top document.
     is3rdPartyToTab() {
         let tabDomain = this.getTabDomain();
@@ -358,6 +403,23 @@ const FilteringContext = class {
         }
         return this;
     }
+
+    setMethod(a) {
+        this.method = methodStrToBitMap[a] || 0;
+        return this;
+    }
+
+    getMethodName() {
+        return FilteringContext.getMethodName(this.method);
+    }
+
+    static getMethod(a) {
+        return methodStrToBitMap[a] || 0;
+    }
+
+    static getMethodName(a) {
+        return methodBitToStrMap.get(a) || '';
+    }
 };
 
 /******************************************************************************/
@@ -386,6 +448,14 @@ FilteringContext.prototype.INLINE_ANY = FilteringContext.INLINE_ANY = INLINE_ANY
 FilteringContext.prototype.PING_ANY = FilteringContext.PING_ANY = PING_ANY;
 FilteringContext.prototype.SCRIPT_ANY = FilteringContext.SCRIPT_ANY = SCRIPT_ANY;
 
-/******************************************************************************/
+FilteringContext.prototype.METHOD_NONE = FilteringContext.METHOD_NONE = METHOD_NONE;
+FilteringContext.prototype.METHOD_CONNECT = FilteringContext.METHOD_CONNECT = METHOD_CONNECT;
+FilteringContext.prototype.METHOD_DELETE = FilteringContext.METHOD_DELETE = METHOD_DELETE;
+FilteringContext.prototype.METHOD_GET = FilteringContext.METHOD_GET = METHOD_GET;
+FilteringContext.prototype.METHOD_HEAD = FilteringContext.METHOD_HEAD = METHOD_HEAD;
+FilteringContext.prototype.METHOD_OPTIONS = FilteringContext.METHOD_OPTIONS = METHOD_OPTIONS;
+FilteringContext.prototype.METHOD_PATCH = FilteringContext.METHOD_PATCH = METHOD_PATCH;
+FilteringContext.prototype.METHOD_POST = FilteringContext.METHOD_POST = METHOD_POST;
+FilteringContext.prototype.METHOD_PUT = FilteringContext.METHOD_PUT = METHOD_PUT;
 
-export { FilteringContext };
+/******************************************************************************/
