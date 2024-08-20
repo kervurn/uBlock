@@ -4,7 +4,7 @@
     "description": "extension name."
   },
   "extShortDesc": {
-    "message": "Trình chặn nội dung thử nghiệm, không cần quyền. Chặn quảng cáo, trình theo dõi, công cụ khai thác tiền số và hơn thế nữa ngay sau khi cài đặt.",
+    "message": "Trình chặn nội dung không cần quyền. Chặn quảng cáo, trình theo dõi, công cụ khai thác tiền số và hơn thế nữa ngay sau khi cài đặt.",
     "description": "this will be in the Chrome web store: must be 132 characters or less"
   },
   "perRulesetStats": {
@@ -64,7 +64,7 @@
     "description": "Header for a ruleset section in 'Filter lists pane'"
   },
   "3pGroupMisc": {
-    "message": "Linh tinh",
+    "message": "Khác",
     "description": "Header for a ruleset section in 'Filter lists pane'"
   },
   "3pGroupRegions": {
@@ -144,8 +144,12 @@
     "description": "This describes the 'complete' filtering mode"
   },
   "noFilteringModeDescription": {
-    "message": "List of hostnames for which no filtering will take place",
+    "message": "Danh sách tên máy chủ sẽ không được lọc",
     "description": "A short description for the editable field which lists trusted sites"
+  },
+  "noFilteringModePlaceholder": {
+    "message": "[hostnames only]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
   },
   "behaviorSectionLabel": {
     "message": "Hành vi",
@@ -153,6 +157,10 @@
   },
   "autoReloadLabel": {
     "message": "Tự động tải lại trang khi thay đổi chế độ bộ lọc",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Hiện số lượng yêu cầu bị chặn trên biểu tượng thanh công cụ",
     "description": "Label for a checkbox in the options page"
   }
 }

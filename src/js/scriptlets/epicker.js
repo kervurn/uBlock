@@ -19,29 +19,17 @@
     Home: https://github.com/gorhill/uBlock
 */
 
-/* global CSS */
-
-'use strict';
-
-/******************************************************************************/
-/******************************************************************************/
-
 (async ( ) => {
 
 /******************************************************************************/
 
-if ( typeof vAPI !== 'object' || vAPI === null ) {
-    return;
-}
+if ( typeof vAPI !== 'object' ) { return; }
+if ( vAPI === null ) { return; }
 
-/******************************************************************************/
+if ( vAPI.pickerFrame ) { return; }
+vAPI.pickerFrame = true;
 
-const epickerId = vAPI.randomToken();
-
-let pickerRoot = document.querySelector(`[${vAPI.sessionId}]`);
-if ( pickerRoot !== null ) { return; }
-
-let pickerBootArgs;
+const pickerUniqueId = vAPI.randomToken();
 
 const reCosmeticAnchor = /^#(\$|\?|\$\?)?#/;
 
@@ -128,7 +116,7 @@ const highlightElements = function(elems, force) {
     const islands = [];
 
     for ( const elem of elems ) {
-        if ( elem === pickerRoot ) { continue; }
+        if ( elem === pickerFrame ) { continue; }
         targetElements.push(elem);
         const rect = getElementBoundingClientRect(elem);
         // Ignore offscreen areas
@@ -554,10 +542,10 @@ const filtersFrom = function(x, y) {
     // https://www.reddit.com/r/uBlockOrigin/comments/qmjk36/
     //   Extract network candidates first.
     if ( typeof x === 'number' ) {
-        const magicAttr = `${vAPI.sessionId}-clickblind`;
-        pickerRoot.setAttribute(magicAttr, '');
+        const magicAttr = `${pickerUniqueId}-clickblind`;
+        pickerFrame.setAttribute(magicAttr, '');
         const elems = document.elementsFromPoint(x, y);
-        pickerRoot.removeAttribute(magicAttr);
+        pickerFrame.removeAttribute(magicAttr);
         for ( const elem of elems ) {
             netFilterFromElement(elem);
         }
@@ -624,6 +612,21 @@ const filterToDOMInterface = (( ) => {
     const reCaret = '(?:[^%.0-9a-z_-]|$)';
     const rePseudoElements = /:(?::?after|:?before|:[a-z-]+)$/;
 
+    const matchElemToRegex = (elem, re) => {
+        const srcProp = netFilter1stSources[elem.localName];
+        let src = elem[srcProp];
+        if ( src instanceof SVGAnimatedString ) {
+            src = src.baseVal;
+        }
+        if ( typeof src === 'string' && /^https?:\/\//.test(src) ) {
+            if ( re.test(src) ) { return srcProp; }
+        }
+        src = elem.currentSrc;
+        if ( typeof src === 'string' && /^https?:\/\//.test(src) ) {
+            if ( re.test(src) ) { return srcProp; }
+        }
+    };
+
     // Net filters: we need to lookup manually -- translating into a foolproof
     // CSS selector is just not possible.
     //
@@ -677,28 +680,21 @@ const filterToDOMInterface = (( ) => {
         // Lookup by tag names.
         // https://github.com/uBlockOrigin/uBlock-issues/issues/2260
         //   Maybe get to the actual URL indirectly.
+        //
+        // https://github.com/uBlockOrigin/uBlock-issues/issues/3142
+        //   Don't try to match against non-network URIs.
         const elems = document.querySelectorAll(
             Object.keys(netFilter1stSources).join()
         );
         for ( const elem of elems ) {
-            const srcProp = netFilter1stSources[elem.localName];
-            let src = elem[srcProp];
-            if ( src instanceof SVGAnimatedString ) {
-                src = src.baseVal;
-            }
-            if (
-                typeof src === 'string' &&
-                    reFilter.test(src) ||
-                typeof elem.currentSrc === 'string' &&
-                    reFilter.test(elem.currentSrc)
-            ) {
-                out.push({
-                    elem,
-                    src: srcProp,
-                    opt: filterTypes[elem.localName],
-                    style: vAPI.hideStyle,
-                });
-            }
+            const srcProp = matchElemToRegex(elem, reFilter);
+            if ( srcProp === undefined ) { continue; }
+            out.push({
+                elem,
+                src: srcProp,
+                opt: filterTypes[elem.localName],
+                style: vAPI.hideStyle,
+            });
         }
 
         // Find matching background image in current set of candidate elements.
@@ -737,7 +733,7 @@ const filterToDOMInterface = (( ) => {
         }
         const out = [];
         for ( const elem of elems ) {
-            if ( elem === pickerRoot ) { continue; }
+            if ( elem === pickerFrame ) { continue; }
             out.push({ elem, raw, style: vAPI.hideStyle });
         }
         return out;
@@ -815,7 +811,7 @@ const filterToDOMInterface = (( ) => {
         if ( Array.isArray(lastResultset) === false ) { return; }
         const rootElem = document.documentElement;
         for ( const { elem, style } of lastResultset ) {
-            if ( elem === pickerRoot ) { continue; }
+            if ( elem === pickerFrame ) { continue; }
             if ( style === undefined ) { continue; }
             if ( elem === rootElem && style === vAPI.hideStyle ) { continue; }
             let styleToken = vAPI.epickerStyleProxies.get(style);
@@ -899,6 +895,7 @@ const onOptimizeCandidates = function(details) {
         if ( r !== 0 ) { return r; }
         return a.selector.length - b.selector.length;
     });
+
     pickerFramePort.postMessage({
         what: 'candidatesOptimized',
         candidates: results.map(a => a.selector),
@@ -932,9 +929,9 @@ const elementFromPoint = (( ) => {
         } else {
             return null;
         }
-        if ( !pickerRoot ) { return null; }
-        const magicAttr = `${vAPI.sessionId}-clickblind`;
-        pickerRoot.setAttribute(magicAttr, '');
+        if ( !pickerFrame ) { return null; }
+        const magicAttr = `${pickerUniqueId}-clickblind`;
+        pickerFrame.setAttribute(magicAttr, '');
         let elem = document.elementFromPoint(x, y);
         if (
             elem === null || /* to skip following tests */
@@ -948,7 +945,7 @@ const elementFromPoint = (( ) => {
             elem = null;
         }
         // https://github.com/uBlockOrigin/uBlock-issues/issues/380
-        pickerRoot.removeAttribute(magicAttr);
+        pickerFrame.removeAttribute(magicAttr);
         return elem;
     };
 })();
@@ -1064,7 +1061,7 @@ const onViewportChanged = function() {
 // Auto-select a specific target, if any, and if possible
 
 const startPicker = function() {
-    pickerRoot.focus();
+    pickerFrame.focus();
 
     self.addEventListener('scroll', onViewportChanged, { passive: true });
     self.addEventListener('resize', onViewportChanged, { passive: true });
@@ -1101,7 +1098,7 @@ const startPicker = function() {
     if ( attr === undefined ) { return; }
     const elems = document.getElementsByTagName(tagName);
     for ( const elem of elems  ) {
-        if ( elem === pickerRoot ) { continue; }
+        if ( elem === pickerFrame ) { continue; }
         const srcs = resourceURLsFromElement(elem);
         if (
             (srcs.length !== 0 && srcs.includes(url) === false) ||
@@ -1140,72 +1137,79 @@ const quitPicker = function() {
     self.removeEventListener('resize', onViewportChanged, { passive: true });
     self.removeEventListener('keydown', onKeyPressed, true);
     vAPI.shutdown.remove(quitPicker);
-    pickerFramePort.close();
-    pickerFramePort = undefined;
+    if ( pickerFramePort ) {
+        pickerFramePort.close();
+        pickerFramePort = null;
+    }
+    if ( pickerFrame ) {
+        pickerFrame.remove();
+        pickerFrame = null;
+    }
     vAPI.userStylesheet.remove(pickerCSS);
     vAPI.userStylesheet.apply();
-    if ( pickerRoot === null ) { return; }
-    pickerRoot.remove();
-    pickerRoot = null;
+    vAPI.pickerFrame = false;
     self.focus();
 };
+
+vAPI.shutdown.add(quitPicker);
 
 /******************************************************************************/
 
 const onDialogMessage = function(msg) {
     switch ( msg.what ) {
-        case 'start':
-            startPicker();
-            if ( targetElements.length === 0 ) {
-                highlightElements([], true);
-            }
-            break;
-        case 'optimizeCandidates':
-            onOptimizeCandidates(msg);
-            break;
-        case 'dialogCreate':
-            filterToDOMInterface.queryAll(msg);
-            filterToDOMInterface.preview(true, true);
-            quitPicker();
-            break;
-        case 'dialogSetFilter': {
-            const resultset = filterToDOMInterface.queryAll(msg) || [];
-            highlightElements(resultset.map(a => a.elem), true);
-            if ( msg.filter === '!' ) { break; }
-            pickerFramePort.postMessage({
-                what: 'resultsetDetails',
-                count: resultset.length,
-                opt: resultset.length !== 0 ? resultset[0].opt : undefined,
-            });
-            break;
+    case 'start':
+        startPicker();
+        if ( pickerFramePort === null ) { break; }
+        if ( targetElements.length === 0 ) {
+            highlightElements([], true);
         }
-        case 'quitPicker':
-            filterToDOMInterface.preview(false);
+        break;
+    case 'optimizeCandidates':
+        onOptimizeCandidates(msg);
+        break;
+    case 'dialogCreate':
+        filterToDOMInterface.queryAll(msg);
+        filterToDOMInterface.preview(true, true);
+        quitPicker();
+        break;
+    case 'dialogSetFilter': {
+        const resultset = filterToDOMInterface.queryAll(msg) || [];
+        highlightElements(resultset.map(a => a.elem), true);
+        if ( msg.filter === '!' ) { break; }
+        pickerFramePort.postMessage({
+            what: 'resultsetDetails',
+            count: resultset.length,
+            opt: resultset.length !== 0 ? resultset[0].opt : undefined,
+        });
+        break;
+    }
+    case 'quitPicker':
+        filterToDOMInterface.preview(false);
+        quitPicker();
+        break;
+    case 'highlightElementAtPoint':
+        highlightElementAtPoint(msg.mx, msg.my);
+        break;
+    case 'unhighlight':
+        highlightElements([]);
+        break;
+    case 'filterElementAtPoint':
+        filterElementAtPoint(msg.mx, msg.my, msg.broad);
+        break;
+    case 'zapElementAtPoint':
+        zapElementAtPoint(msg.mx, msg.my, msg.options);
+        if ( msg.options.highlight !== true && msg.options.stay !== true ) {
             quitPicker();
-            break;
-        case 'highlightElementAtPoint':
-            highlightElementAtPoint(msg.mx, msg.my);
-            break;
-        case 'unhighlight':
-            highlightElements([]);
-            break;
-        case 'filterElementAtPoint':
-            filterElementAtPoint(msg.mx, msg.my, msg.broad);
-            break;
-        case 'zapElementAtPoint':
-            zapElementAtPoint(msg.mx, msg.my, msg.options);
-            if ( msg.options.highlight !== true && msg.options.stay !== true ) {
-                quitPicker();
-            }
-            break;
-        case 'togglePreview':
-            filterToDOMInterface.preview(msg.state);
-            if ( msg.state === false ) {
-                highlightElements(targetElements, true);
-            }
-            break;
-        default:
-            break;
+        }
+        break;
+    case 'togglePreview':
+        filterToDOMInterface.preview(msg.state);
+        if ( msg.state === false ) {
+            highlightElements(targetElements, true);
+        }
+        break;
+    default:
+        break;
     }
 };
 
@@ -1228,21 +1232,6 @@ const onDialogMessage = function(msg) {
 // of the iframe, and cannot interfere with its style properties. However the
 // page can remove the iframe.
 
-// fetch/process picker arguments.
-{
-    pickerBootArgs = await vAPI.messaging.send('elementPicker', {
-        what: 'elementPickerArguments',
-    });
-    if ( typeof pickerBootArgs !== 'object' ) { return; }
-    if ( pickerBootArgs === null ) { return; }
-    // Restore net filter union data if origin is the same.
-    const eprom = pickerBootArgs.eprom || null;
-    if ( eprom !== null && eprom.lastNetFilterSession === lastNetFilterSession ) {
-        lastNetFilterHostname = eprom.lastNetFilterHostname || '';
-        lastNetFilterUnion = eprom.lastNetFilterUnion || '';
-    }
-}
-
 // The DOM filterer will not be present when cosmetic filtering is disabled.
 const noCosmeticFiltering =
     vAPI.domFilterer instanceof Object === false ||
@@ -1260,6 +1249,7 @@ const pickerCSSStyle = [
     'display: block',
     'filter: none',
     'height: 100vh',
+    '    height: 100svh',
     'left: 0',
     'margin: 0',
     'max-height: none',
@@ -1281,13 +1271,13 @@ const pickerCSSStyle = [
 
 
 const pickerCSS = `
-:root > [${vAPI.sessionId}] {
+:root > [${pickerUniqueId}] {
     ${pickerCSSStyle}
 }
-:root > [${vAPI.sessionId}-loaded] {
+:root > [${pickerUniqueId}-loaded] {
     visibility: visible !important;
 }
-:root [${vAPI.sessionId}-clickblind] {
+:root [${pickerUniqueId}-clickblind] {
     pointer-events: none !important;
 }
 `;
@@ -1295,38 +1285,53 @@ const pickerCSS = `
 vAPI.userStylesheet.add(pickerCSS);
 vAPI.userStylesheet.apply();
 
-pickerRoot = document.createElement('iframe');
-pickerRoot.setAttribute(vAPI.sessionId, '');
-document.documentElement.append(pickerRoot);
+let pickerBootArgs;
+let pickerFramePort = null;
 
-vAPI.shutdown.add(quitPicker);
-
-let pickerFramePort;
-
-{
+const bootstrap = async ( ) => {
+    pickerBootArgs = await vAPI.messaging.send('elementPicker', {
+        what: 'elementPickerArguments',
+    });
+    if ( typeof pickerBootArgs !== 'object' ) { return; }
+    if ( pickerBootArgs === null ) { return; }
+    // Restore net filter union data if origin is the same.
+    const eprom = pickerBootArgs.eprom || null;
+    if ( eprom !== null && eprom.lastNetFilterSession === lastNetFilterSession ) {
+        lastNetFilterHostname = eprom.lastNetFilterHostname || '';
+        lastNetFilterUnion = eprom.lastNetFilterUnion || '';
+    }
     const url = new URL(pickerBootArgs.pickerURL);
-    url.searchParams.set('epid', epickerId);
     if ( pickerBootArgs.zap ) {
         url.searchParams.set('zap', '1');
     }
-    pickerRoot.addEventListener('load', ( ) => {
-        const channel = new MessageChannel();
-        pickerFramePort = channel.port1;
-        pickerFramePort.onmessage = ev => {
-            const msg = ev.data || {};
-            onDialogMessage(msg);
-        };
-        pickerFramePort.onmessageerror = ( ) => {
-            quitPicker();
-        };
-        pickerRoot.setAttribute(`${vAPI.sessionId}-loaded`, '');
-        pickerRoot.contentWindow.postMessage(
-            { what: 'epickerStart' },
-            url.href,
-            [ channel.port2 ]
-        );
-    }, { once: true });
-    pickerRoot.contentWindow.location = url.href;
+    return new Promise(resolve => {
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute(pickerUniqueId, '');
+        document.documentElement.append(iframe);
+        iframe.addEventListener('load', ( ) => {
+            iframe.setAttribute(`${pickerUniqueId}-loaded`, '');
+            const channel = new MessageChannel();
+            pickerFramePort = channel.port1;
+            pickerFramePort.onmessage = ev => {
+                onDialogMessage(ev.data || {});
+            };
+            pickerFramePort.onmessageerror = ( ) => {
+                quitPicker();
+            };
+            iframe.contentWindow.postMessage(
+                { what: 'epickerStart' },
+                url.href,
+                [ channel.port2 ]
+            );
+            resolve(iframe);
+        }, { once: true });
+        iframe.contentWindow.location = url.href;
+    });
+};
+
+let pickerFrame = await bootstrap();
+if ( Boolean(pickerFrame) === false ) {
+    quitPicker();
 }
 
 /******************************************************************************/

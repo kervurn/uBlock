@@ -4,7 +4,7 @@
     "description": "extension name."
   },
   "extShortDesc": {
-    "message": "En behörighetslös innehållsblockerare.  Blockerar annonser, spårare, miners och mer omedelbart efter installationen.",
+    "message": "En behörighetslös innehållsblockerare. Blockerar annonser, spårare, miners och mer omedelbart efter installationen.",
     "description": "this will be in the Chrome web store: must be 132 characters or less"
   },
   "perRulesetStats": {
@@ -144,8 +144,12 @@
     "description": "This describes the 'complete' filtering mode"
   },
   "noFilteringModeDescription": {
-    "message": "Lista över värdnamn för vilka ingen filtrering kommer att äga rum",
+    "message": "Lista över värdnamn som inte kommer att filtreras",
     "description": "A short description for the editable field which lists trusted sites"
+  },
+  "noFilteringModePlaceholder": {
+    "message": "[endast värdnamn]\nexempel.se\nspel.exempel\n...",
+    "description": "Default text for in edit field"
   },
   "behaviorSectionLabel": {
     "message": "Beteende",
@@ -153,6 +157,10 @@
   },
   "autoReloadLabel": {
     "message": "Ladda automatiskt om sidan när du byter filtreringsläge",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Visa antalet blockerade förfrågningar på verktygsfältsikonen",
     "description": "Label for a checkbox in the options page"
   }
 }

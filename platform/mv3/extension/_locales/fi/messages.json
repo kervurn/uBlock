@@ -147,12 +147,20 @@
     "message": "Listaus osotteista, joita ei suodateta.",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[vain isäntänimiä]\nesimerkki.fi\npelit.esimerkki\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Toiminta",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Lataa sivu suodatustilan vaihtuessa automaattisesti uudelleen",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Näytä estettyjen pyyntöjen määrä työkalupalkin kuvakkeessa",
     "description": "Label for a checkbox in the options page"
   }
 }

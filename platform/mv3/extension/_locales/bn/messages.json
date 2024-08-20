@@ -16,7 +16,7 @@
     "description": "English: uBO Lite — Dashboard"
   },
   "settingsPageName": {
-    "message": "পছন্দসমূহ",
+    "message": "সেটিংস",
     "description": "appears as tab name in dashboard"
   },
   "aboutPageName": {
@@ -116,7 +116,7 @@
     "description": "This describes the default filtering mode setting"
   },
   "filteringMode0Name": {
-    "message": "ছাঁকনি নেই",
+    "message": "ফিল্টারিং নেই",
     "description": "Name of blocking mode 0"
   },
   "filteringMode1Name": {
@@ -144,15 +144,23 @@
     "description": "This describes the 'complete' filtering mode"
   },
   "noFilteringModeDescription": {
-    "message": "List of hostnames for which no filtering will take place",
+    "message": "হোস্টনেমের তালিকা যেগুলোর কোনো ফিল্টারিং হবে না",
     "description": "A short description for the editable field which lists trusted sites"
+  },
+  "noFilteringModePlaceholder": {
+    "message": "[hostnames only]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
   },
   "behaviorSectionLabel": {
     "message": "আচরণ",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
-    "message": "ফিল্টারিং মোড পরিবর্তন করার সময় স্বয়ংক্রিয়ভাবে পেজ পুনরায় লোড করুন",
+    "message": "ফিল্টারিং মোড পরিবর্তন করার সময় স্বয়ংক্রিয়ভাবে পুনরায় লোড করুন",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "কতগুলো অনুরোধ ব্লক করা হয়েছে তা টুলবার আইকনে দেখাও",
     "description": "Label for a checkbox in the options page"
   }
 }

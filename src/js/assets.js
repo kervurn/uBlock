@@ -39,6 +39,7 @@ const reIsUserAsset = /^user-/;
 const errorCantConnectTo = i18n$('errorCantConnectTo');
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
+const MINUTES_PER_DAY = 24 * 60;
 const EXPIRES_DEFAULT = 7;
 
 const assets = {};
@@ -52,10 +53,13 @@ let remoteServerFriendly = false;
 const stringIsNotEmpty = s => typeof s === 'string' && s !== '';
 
 const parseExpires = s => {
-    const matches = s.match(/(\d+)\s*([dhm]?)/i);
+    const matches = s.match(/(\d+)\s*([wdhm]?)/i);
     if ( matches === null ) { return; }
     let updateAfter = parseInt(matches[1], 10);
-    if ( matches[2] === 'h' ) {
+    if ( updateAfter === 0 ) { return; }
+    if ( matches[2] === 'w' ) {
+        updateAfter *= 7 * 24;
+    } else if ( matches[2] === 'h' ) {
         updateAfter = Math.max(updateAfter, 4) / 24;
     } else if ( matches[2] === 'm' ) {
         updateAfter = Math.max(updateAfter, 240) / 1440;
@@ -94,31 +98,11 @@ const extractMetadataFromList = (content, fields) => {
 assets.extractMetadataFromList = extractMetadataFromList;
 
 const resourceTimeFromXhr = xhr => {
-    try {
-        // First lookup timestamp from content
-        let assetTime = 0;
-        if ( typeof xhr.response === 'string' ) {
-            const metadata = extractMetadataFromList(xhr.response, [
-                'Last-Modified'
-            ]);
-            assetTime = metadata.lastModified || 0;
-        }
-        // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Age
-        // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Date
-        let networkTime = 0;
-        if ( assetTime === 0 ) {
-            const age = parseInt(xhr.getResponseHeader('Age'), 10);
-            if ( isNaN(age) === false ) {
-                const time = (new Date(xhr.getResponseHeader('Date'))).getTime();
-                if ( isNaN(time) === false ) {
-                    networkTime = time - age * 1000;
-                }
-            }
-        }
-        return Math.max(assetTime, networkTime, 0);
-    } catch(_) {
-    }
-    return 0;
+    if ( typeof xhr.response !== 'string' ) {  return 0; }
+    const metadata = extractMetadataFromList(xhr.response, [
+        'Last-Modified'
+    ]);
+    return metadata.lastModified || 0;
 };
 
 const resourceTimeFromParts = (parts, time) => {
@@ -175,6 +159,23 @@ const isDiffUpdatableAsset = content => {
         data.diffPath.startsWith('%') === false;
 };
 
+const computedPatchUpdateTime = assetKey => {
+    const entry = assetCacheRegistry[assetKey];
+    if ( entry === undefined ) { return 0; }
+    if ( typeof entry.diffPath !== 'string' ) { return 0; }
+    if ( typeof entry.diffExpires !== 'number' ) { return 0; }
+    const match = /(\d+)\.(\d+)\.(\d+)\.(\d+)/.exec(entry.diffPath);
+    if ( match === null ) { return getWriteTime(); }
+    const date = new Date();
+    date.setUTCFullYear(
+        parseInt(match[1], 10),
+        parseInt(match[2], 10) - 1,
+        parseInt(match[3], 10)
+    );
+    date.setUTCHours(0, parseInt(match[4], 10) + entry.diffExpires * MINUTES_PER_DAY, 0, 0);
+    return date.getTime();
+};
+
 /******************************************************************************/
 
 // favorLocal: avoid making network requests whenever possible
@@ -198,14 +199,14 @@ const getContentURLs = (assetKey, options = {}) => {
             return 0;
         });
     }
-    if ( Array.isArray(entry.cdnURLs) ) {
+    if ( options.favorOrigin !== true && Array.isArray(entry.cdnURLs) ) {
         const cdnURLs = entry.cdnURLs.slice();
         for ( let i = 0, n = cdnURLs.length; i < n; i++ ) {
             const j = Math.floor(Math.random() * n);
             if ( j === i ) { continue; }
             [ cdnURLs[j], cdnURLs[i] ] = [ cdnURLs[i], cdnURLs[j] ];
         }
-        if ( options.favorLocal || options.favorOrigin ) {
+        if ( options.favorLocal ) {
             contentURLs.push(...cdnURLs);
         } else {
             contentURLs.unshift(...cdnURLs);
@@ -430,7 +431,7 @@ assets.fetchFilterList = async function(mainlistURL) {
                 continue;
             }
             if ( result instanceof Object === false ) { continue; }
-            const content = result.content;
+            const content = result.content.trimEnd() + '\n';
             const slices = sfp.utils.preparser.splitter(
                 content,
                 vAPI.webextFlavor.env
@@ -502,7 +503,7 @@ assets.fetchFilterList = async function(mainlistURL) {
         resourceTime,
         content: allParts.length === 1
             ? allParts[0]
-            : allParts.join('') + '\n'
+            : allParts.join('')
     };
 };
 
@@ -527,12 +528,12 @@ function getAssetSourceRegistry() {
         assetSourceRegistryPromise = cacheStorage.get(
             'assetSourceRegistry'
         ).then(bin => {
-            if (
-                bin instanceof Object &&
-                bin.assetSourceRegistry instanceof Object
-            ) {
-                assetSourceRegistry = bin.assetSourceRegistry;
-                return assetSourceRegistry;
+            if ( bin instanceof Object ) {
+                if ( bin.assetSourceRegistry instanceof Object ) {
+                    assetSourceRegistry = bin.assetSourceRegistry;
+                    ubolog('Loaded assetSourceRegistry');
+                    return assetSourceRegistry;
+                }
             }
             return assets.fetchText(
                 µb.assetsBootstrapLocation || µb.assetsJsonPath
@@ -542,6 +543,7 @@ function getAssetSourceRegistry() {
                     : assets.fetchText(µb.assetsJsonPath);
             }).then(details => {
                 updateAssetSourceRegistry(details.content, true);
+                ubolog('Loaded assetSourceRegistry');
                 return assetSourceRegistry;
             });
         });
@@ -672,49 +674,36 @@ let assetCacheRegistryPromise;
 let assetCacheRegistry = {};
 
 function getAssetCacheRegistry() {
-    if ( assetCacheRegistryPromise === undefined ) {
-        assetCacheRegistryPromise = cacheStorage.get(
-            'assetCacheRegistry'
-        ).then(bin => {
-            if (
-                bin instanceof Object &&
-                bin.assetCacheRegistry instanceof Object
-            ) {
-                if ( Object.keys(assetCacheRegistry).length === 0 ) {
-                    assetCacheRegistry = bin.assetCacheRegistry;
-                } else {
-                    console.error(
-                        'getAssetCacheRegistry(): assetCacheRegistry reassigned!'
-                    );
-                    if (
-                        Object.keys(bin.assetCacheRegistry).sort().join() !==
-                        Object.keys(assetCacheRegistry).sort().join()
-                    ) {
-                        console.error(
-                            'getAssetCacheRegistry(): assetCacheRegistry changes overwritten!'
-                        );
-                    }
-                }
-            }
-            return assetCacheRegistry;
-        });
+    if ( assetCacheRegistryPromise !== undefined ) {
+        return assetCacheRegistryPromise;
     }
-
+    assetCacheRegistryPromise = cacheStorage.get(
+        'assetCacheRegistry'
+    ).then(bin => {
+        if ( bin instanceof Object === false ) { return; }
+        if ( bin.assetCacheRegistry instanceof Object === false ) { return; }
+        if ( Object.keys(assetCacheRegistry).length !== 0 ) {
+            return console.error('getAssetCacheRegistry(): assetCacheRegistry reassigned!');
+        }
+        ubolog('Loaded assetCacheRegistry');
+        assetCacheRegistry = bin.assetCacheRegistry;
+    }).then(( ) =>
+        assetCacheRegistry
+    );
     return assetCacheRegistryPromise;
 }
 
 const saveAssetCacheRegistry = (( ) => {
-    const save = function() {
+    const save = ( ) => {
         timer.off();
-        cacheStorage.set({ assetCacheRegistry });
+        return cacheStorage.set({ assetCacheRegistry });
     };
     const timer = vAPI.defer.create(save);
-    return function(lazily) {
-        if ( lazily ) {
-            timer.offon({ sec: 30 });
-        } else {
-            save();
+    return (throttle = 0) => {
+        if ( throttle === 0 ) {
+            return save();
         }
+        timer.offon({ sec: throttle });
     };
 })();
 
@@ -725,7 +714,9 @@ async function assetCacheRead(assetKey, updateReadTime = false) {
     const reportBack = function(content) {
         if ( content instanceof Blob ) { content = ''; }
         const details = { assetKey, content };
-        if ( content === '' ) { details.error = 'ENOTFOUND'; }
+        if ( content === '' || content === undefined ) {
+            details.error = 'ENOTFOUND';
+        }
         return details;
     };
 
@@ -741,55 +732,39 @@ async function assetCacheRead(assetKey, updateReadTime = false) {
         ) + ' ms';
     }
 
-    if (
-        bin instanceof Object === false ||
-        bin.hasOwnProperty(internalKey) === false
-    ) {
-        return reportBack('');
-    }
+    if ( bin instanceof Object === false ) { return reportBack(''); }
+    if ( bin.hasOwnProperty(internalKey) === false ) { return reportBack(''); }
 
     const entry = assetCacheRegistry[assetKey];
-    if ( entry === undefined ) {
-        return reportBack('');
-    }
+    if ( entry === undefined ) { return reportBack(''); }
 
     entry.readTime = Date.now();
     if ( updateReadTime ) {
-        saveAssetCacheRegistry(true);
+        saveAssetCacheRegistry(23);
     }
 
     return reportBack(bin[internalKey]);
 }
 
-async function assetCacheWrite(assetKey, details) {
-    let content = '';
-    let options = {};
-    if ( typeof details === 'string' ) {
-        content = details;
-    } else if ( details instanceof Object ) {
-        content = details.content || '';
-        options = details;
-    }
-
-    if ( content === '' ) {
+async function assetCacheWrite(assetKey, content, options = {}) {
+    if ( content === '' || content === undefined ) {
         return assetCacheRemove(assetKey);
     }
 
     const cacheDict = await getAssetCacheRegistry();
 
-    let entry = cacheDict[assetKey];
-    if ( entry === undefined ) {
-        entry = cacheDict[assetKey] = {};
-    }
+    const { resourceTime, url } = options;
+    const entry = cacheDict[assetKey] || {};
     entry.writeTime = entry.readTime = Date.now();
-    entry.resourceTime = options.resourceTime || 0;
-    if ( typeof options.url === 'string' ) {
-        entry.remoteURL = options.url;
+    entry.resourceTime = resourceTime || 0;
+    if ( typeof url === 'string' ) {
+        entry.remoteURL = url;
     }
-    cacheStorage.set({
-        assetCacheRegistry,
-        [`cache/${assetKey}`]: content
-    });
+    cacheDict[assetKey] = entry;
+
+    await cacheStorage.set({ [`cache/${assetKey}`]: content });
+
+    saveAssetCacheRegistry(3);
 
     const result = { assetKey, content };
     // https://github.com/uBlockOrigin/uBlock-issues/issues/248
@@ -799,20 +774,30 @@ async function assetCacheWrite(assetKey, details) {
     return result;
 }
 
-async function assetCacheRemove(pattern) {
+async function assetCacheRemove(pattern, options = {}) {
     const cacheDict = await getAssetCacheRegistry();
     const removedEntries = [];
     const removedContent = [];
     for ( const assetKey in cacheDict ) {
-        if ( pattern instanceof RegExp && !pattern.test(assetKey) ) {
-            continue;
-        }
-        if ( typeof pattern === 'string' && assetKey !== pattern ) {
-            continue;
+        if ( pattern instanceof RegExp ) {
+            if ( pattern.test(assetKey) === false ) { continue; }
+        } else if ( typeof pattern === 'string' ) {
+            if ( assetKey !== pattern ) { continue; }
         }
         removedEntries.push(assetKey);
-        removedContent.push('cache/' + assetKey);
+        removedContent.push(`cache/${assetKey}`);
         delete cacheDict[assetKey];
+    }
+    if ( options.janitor && pattern instanceof RegExp ) {
+        const re = new RegExp(
+            pattern.source.replace(/^\^/, '^cache\\/'),
+            pattern.flags
+        );
+        const keys = await cacheStorage.keys(re);
+        for ( const key of keys ) {
+            removedContent.push(key);
+            ubolog(`Removing stray ${key}`);
+        }
     }
     if ( removedContent.length !== 0 ) {
         await Promise.all([
@@ -853,7 +838,7 @@ async function assetCacheSetDetails(assetKey, details) {
         }
     }
     if ( modified ) {
-        saveAssetCacheRegistry();
+        saveAssetCacheRegistry(3);
     }
 }
 
@@ -979,8 +964,7 @@ assets.get = async function(assetKey, options = {}) {
         }
         if ( details.content === '' ) { continue; }
         if ( reIsExternalPath.test(contentURL) && options.dontCache !== true ) {
-            assetCacheWrite(assetKey, {
-                content: details.content,
+            assetCacheWrite(assetKey, details.content, {
                 url: contentURL,
                 silent: options.silent === true,
             });
@@ -1050,12 +1034,13 @@ async function getRemote(assetKey, options = {}) {
         error = undefined;
 
         // If fetched resource is older than cached one, ignore
-        stale = resourceIsStale(result, cacheDetails);
-        if ( stale ) { continue; }
+        if ( options.favorOrigin !== true ) {
+            stale = resourceIsStale(result, cacheDetails);
+            if ( stale ) { continue; }
+        }
 
         // Success
-        assetCacheWrite(assetKey, {
-            content: result.content,
+        assetCacheWrite(assetKey, result.content, {
             url: contentURL,
             resourceTime: result.resourceTime || 0,
         });
@@ -1094,6 +1079,17 @@ assets.put = async function(assetKey, content) {
     return reIsUserAsset.test(assetKey)
         ? await saveUserAsset(assetKey, content)
         : await assetCacheWrite(assetKey, content);
+};
+
+/******************************************************************************/
+
+assets.toCache = async function(assetKey, content) {
+    return assetCacheWrite(assetKey, content);
+};
+
+assets.fromCache = async function(assetKey) {
+    const details = await assetCacheRead(assetKey);
+    return details && details.content;
 };
 
 /******************************************************************************/
@@ -1144,8 +1140,8 @@ assets.metadata = async function() {
 
 assets.purge = assetCacheMarkAsDirty;
 
-assets.remove = function(pattern) {
-    return assetCacheRemove(pattern);
+assets.remove = function(...args) {
+    return assetCacheRemove(...args);
 };
 
 assets.rmrf = function() {
@@ -1169,7 +1165,7 @@ assets.getUpdateAges = async function(conditions = {}) {
         out.push({
             assetKey,
             age,
-            ageNormalized: age / getUpdateAfterTime(assetKey),
+            ageNormalized: age / Math.max(1, getUpdateAfterTime(assetKey)),
         });
     }
     return out;
@@ -1204,8 +1200,20 @@ const getAssetDiffDetails = assetKey => {
     out.writeTime = cacheEntry.writeTime;
     const assetEntry = assetSourceRegistry[assetKey];
     if ( assetEntry === undefined ) { return; }
-    if ( Array.isArray(assetEntry.cdnURLs) === false ) { return; }
-    out.cdnURLs = assetEntry.cdnURLs.slice();
+    if ( assetEntry.content !== 'filters' ) { return; }
+    if ( Array.isArray(assetEntry.cdnURLs) ) {
+        out.cdnURLs = assetEntry.cdnURLs.slice();
+    } else if ( reIsExternalPath.test(assetKey) ) {
+        out.cdnURLs = [ assetKey ];
+    } else if ( typeof assetEntry.contentURL === 'string' ) {
+        out.cdnURLs = [ assetEntry.contentURL ];
+    } else if ( Array.isArray(assetEntry.contentURL) ) {
+        out.cdnURLs = assetEntry.contentURL.slice(0).filter(url =>
+            reIsExternalPath.test(url)
+        );
+    }
+    if ( Array.isArray(out.cdnURLs) === false ) { return; }
+    if ( out.cdnURLs.length === 0 ) { return; }
     return out;
 };
 
@@ -1221,12 +1229,13 @@ async function diffUpdater() {
         const assetDetails = getAssetDiffDetails(assetKey);
         if ( assetDetails === undefined ) { continue; }
         assetDetails.what = 'update';
-        if ( (getWriteTime(assetKey) + assetDetails.diffExpires) > now ) {
-            assetDetails.fetch = false;
-            toSoftUpdate.push(assetDetails);
-        } else {
+        const computedUpdateTime = computedPatchUpdateTime(assetKey);
+        if ( computedUpdateTime !== 0 && computedUpdateTime <= now ) {
             assetDetails.fetch = true;
             toHardUpdate.push(assetDetails);
+        } else {
+            assetDetails.fetch = false;
+            toSoftUpdate.push(assetDetails);
         }
     }
     if ( toHardUpdate.length === 0 ) { return; }
@@ -1284,8 +1293,7 @@ async function diffUpdater() {
                     'Diff-Path',
                     'Diff-Expires',
                 ]);
-                assetCacheWrite(data.assetKey, {
-                    content: data.text,
+                assetCacheWrite(data.assetKey, data.text, {
                     resourceTime: metadata.lastModified || 0,
                 });
                 metadata.diffUpdated = true;
@@ -1317,6 +1325,8 @@ async function diffUpdater() {
             terminate();
         };
         const worker = new Worker('js/diff-updater.js');
+    }).catch(reason => {
+        ubolog(`Diff updater: ${reason}`);
     });
 }
 
@@ -1432,8 +1442,8 @@ function updateDone() {
 
 assets.updateStart = function(details) {
     const oldUpdateDelay = updaterAssetDelay;
-    const newUpdateDelay = typeof details.delay === 'number'
-        ? details.delay
+    const newUpdateDelay = typeof details.fetchDelay === 'number'
+        ? details.fetchDelay
         : updaterAssetDelayDefault;
     updaterAssetDelay = Math.min(oldUpdateDelay, newUpdateDelay);
     updaterAuto = details.auto === true;

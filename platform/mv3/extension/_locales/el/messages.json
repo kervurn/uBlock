@@ -147,12 +147,20 @@
     "message": "Λίστα των hostnames για τα οποία δεν θα πραγματοποιηθεί φιλτράρισμα",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[hostnames only]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Συμπεριφορά",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Αυτόματη επαναφόρτωση σελίδας κατά την αλλαγή λειτουργίας φιλτραρίσματος",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Εμφάνιση του αριθμού των αποκλεισμένων αιτημάτων στο εικονίδιο της γραμμής εργαλείων",
     "description": "Label for a checkbox in the options page"
   }
 }

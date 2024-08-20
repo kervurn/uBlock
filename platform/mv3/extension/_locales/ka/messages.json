@@ -147,12 +147,20 @@
     "message": "სია მისამართებისა, რომლებზეც ფილტრები არ იმოქმედებს",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[hostnames only]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "მოქმედება",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "გვერდის ავტომატური განახლება ფილტრაციის რეჟიმის შეცვლისას",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "აჩვენეთ დაბლოკილი მოთხოვნების რაოდენობა ხელსაწყოთა ზოლის ხატულაზე",
     "description": "Label for a checkbox in the options page"
   }
 }

@@ -4,7 +4,7 @@
     "description": "extension name."
   },
   "extShortDesc": {
-    "message": "Eksperymentalny, niewymagający uprawnień bloker treści. Natychmiast po instalacji blokuje reklamy, moduły śledzące, koparki i nie tylko.",
+    "message": "Niewymagający uprawnień bloker treści. Natychmiast po instalacji blokuje reklamy, moduły śledzące, koparki i nie tylko.",
     "description": "this will be in the Chrome web store: must be 132 characters or less"
   },
   "perRulesetStats": {
@@ -147,12 +147,20 @@
     "message": "Lista nazw hostów, dla których nie będzie stosowane żadne filtrowanie",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[tylko nazwy hostów]\nexample.com\ngry.przykład\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Zachowanie",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Automatycznie wczytaj ponownie stronę po zmianie trybu filtrowania",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Wyświetlaj liczbę zablokowanych żądań na ikonie paska narzędzi",
     "description": "Label for a checkbox in the options page"
   }
 }

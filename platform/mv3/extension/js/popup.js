@@ -19,17 +19,11 @@
     Home: https://github.com/gorhill/uBlock
 */
 
-/* jshint esversion:11 */
-
-'use strict';
-
-/******************************************************************************/
-
 import {
     browser,
+    localRead, localWrite,
     runtime,
     sendMessage,
-    localRead, localWrite,
 } from './ext.js';
 
 import { dom, qs$ } from './dom.js';
@@ -97,7 +91,9 @@ async function commitFilteringMode() {
         setFilteringMode(actualLevel);
     }
     if ( actualLevel !== beforeLevel && popupPanelData.autoReload ) {
-        browser.tabs.reload(currentTab.id);
+        self.setTimeout(( ) => {
+            browser.tabs.reload(currentTab.id);
+        }, 437);
     }
 }
 
@@ -271,6 +267,15 @@ dom.on('[data-i18n-title="popupTipDashboard"]', 'click', ev => {
     runtime.openOptionsPage();
 });
 
+dom.on('#showMatchedRules', 'click', ev => {
+    if ( ev.isTrusted !== true ) { return; }
+    if ( ev.button !== 0 ) { return; }
+    sendMessage({
+        what: 'showMatchedRules',
+        tabId: currentTab.id,
+    });
+});
+
 /******************************************************************************/
 
 async function init() {
@@ -302,6 +307,12 @@ async function init() {
     setFilteringMode(popupPanelData.level);
 
     dom.text('#hostname', punycode.toUnicode(tabHostname));
+
+    dom.cl.toggle('#showMatchedRules', 'enabled',
+        popupPanelData.isSideloaded === true &&
+        typeof currentTab.id === 'number' &&
+        isNaN(currentTab.id) === false
+    );
 
     const parent = qs$('#rulesetStats');
     for ( const details of popupPanelData.rulesetDetails || [] ) {

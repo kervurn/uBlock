@@ -4,7 +4,7 @@
     "description": "extension name."
   },
   "extShortDesc": {
-    "message": "İzin gerektirmeyen içerik engelleyicisi. Kurulumdan hemen sonra reklamları, izleyicileri, kripto madencilerini, ve daha fazlasını engeller.",
+    "message": "İzin gerektirmeyen içerik engelleyicisi. Kurulumdan hemen sonra reklamları, izleyicileri, ve daha fazlasını engeller.",
     "description": "this will be in the Chrome web store: must be 132 characters or less"
   },
   "perRulesetStats": {
@@ -147,12 +147,20 @@
     "message": "Filtreleme yapılmayacak alan alarının listesi",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[sadece ana bilgisayar adları]\nörnek.com\noyunlar.site\n…",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Davranış",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
-    "message": "Filtreleme modu değiştirildiğinde sayfayı yenile",
+    "message": "Filtreleme modunu değiştirirken sayfayı otomatik olarak yenile",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Engellenen isteklerin sayısını araç çubuğu simgesinde göster",
     "description": "Label for a checkbox in the options page"
   }
 }

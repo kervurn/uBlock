@@ -110,7 +110,7 @@ const urlToFileName = url => {
         ;
 };
 
-const fetchList = (url, cacheDir) => {
+const fetchText = (url, cacheDir) => {
     return new Promise((resolve, reject) => {
         const fname = urlToFileName(url);
         fs.readFile(`${cacheDir}/${fname}`, { encoding: 'utf8' }).then(content => {
@@ -168,7 +168,7 @@ const requiredRedirectResources = new Set();
 
 /******************************************************************************/
 
-async function fetchAsset(assetDetails) {
+async function fetchList(assetDetails) {
     // Remember fetched URLs
     const fetchedURLs = new Set();
 
@@ -190,7 +190,7 @@ async function fetchAsset(assetDetails) {
                 newParts.push(`!#trusted on ${assetDetails.secret}`);
             }
             newParts.push(
-                fetchList(part.url, cacheDir).then(details => {
+                fetchText(part.url, cacheDir).then(details => {
                     const { url } = details;
                     const content = details.content.trim();
                     if ( typeof content === 'string' && content !== '' ) {
@@ -227,10 +227,13 @@ const isRegex = rule =>
     rule.condition !== undefined &&
     rule.condition.regexFilter !== undefined;
 
-const isRedirect = rule =>
-    rule.action !== undefined &&
-    rule.action.type === 'redirect' &&
-    rule.action.redirect.extensionPath !== undefined;
+const isRedirect = rule => {
+    if ( rule.action === undefined ) { return false; }
+    if ( rule.action.type !== 'redirect' ) { return false; }
+    if ( rule.action.redirect?.extensionPath !== undefined ) { return true; }
+    if ( rule.action.redirect?.transform?.path !== undefined ) { return true; }
+    return false;
+};
 
 const isModifyHeaders = rule =>
     rule.action !== undefined &&
@@ -335,24 +338,6 @@ async function processNetworkFilters(assetDetails, network) {
     log(`\tRejected filter count: ${network.rejectedFilterCount}`);
     log(`Output rule count: ${rules.length}`);
 
-    // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/declarativeNetRequest/RuleCondition#browser_compatibility
-    // isUrlFilterCaseSensitive is true by default in Chromium. It will be
-    // false by default in Chromium 118+.
-    if ( platform !== 'firefox' ) {
-        for ( const rule of rules ) {
-            const { condition } = rule;
-            if ( condition === undefined ) { continue; }
-            if ( condition.urlFilter === undefined ) {
-                if ( condition.regexFilter === undefined ) { continue; }
-            }
-            if ( condition.isUrlFilterCaseSensitive === undefined ) {
-                condition.isUrlFilterCaseSensitive = false;
-            } else if ( condition.isUrlFilterCaseSensitive === true ) {
-                condition.isUrlFilterCaseSensitive = undefined;
-            }
-        }
-    }
-
     // Minimize requestDomains arrays
     for ( const rule of rules ) {
         const condition = rule.condition;
@@ -364,6 +349,14 @@ async function processNetworkFilters(assetDetails, network) {
         const afterCount = condition.requestDomains.length;
         if ( afterCount !== beforeCount ) {
             log(`\tPruning requestDomains: from ${beforeCount} to ${afterCount}`);
+        }
+    }
+
+    // Add native DNR ruleset if present
+    if ( assetDetails.dnrURL ) {
+        const result = await fetchText(assetDetails.dnrURL, cacheDir);
+        for ( const rule of JSON.parse(result.content) ) {
+            rules.push(rule);
         }
     }
 
@@ -384,6 +377,7 @@ async function processNetworkFilters(assetDetails, network) {
         isRedirect(rule)
     );
     redirects.forEach(rule => {
+        if ( rule.action.redirect.extensionPath === undefined ) { return; }
         requiredRedirectResources.add(
             rule.action.redirect.extensionPath.replace(/^\/+/, '')
         );
@@ -979,9 +973,13 @@ async function rulesetFromURLs(assetDetails) {
     log(`Listset for '${assetDetails.id}':`);
 
     if ( assetDetails.text === undefined ) {
-        const text = await fetchAsset(assetDetails);
+        const text = await fetchList(assetDetails);
         if ( text === '' ) { return; }
         assetDetails.text = text;
+    }
+
+    if ( Array.isArray(assetDetails.filters) ) {
+        assetDetails.text += '\n' + assetDetails.filters.join('\n');
     }
 
     const extensionPaths = [];
@@ -1140,10 +1138,10 @@ async function main() {
     // Assemble all default lists as the default ruleset
     const contentURLs = [
         'https://ublockorigin.github.io/uAssets/filters/filters.min.txt',
-        'https://ublockorigin.github.io/uAssets/filters/badware.txt',
+        'https://ublockorigin.github.io/uAssets/filters/badware.min.txt',
         'https://ublockorigin.github.io/uAssets/filters/privacy.min.txt',
         'https://ublockorigin.github.io/uAssets/filters/unbreak.min.txt',
-        'https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt',
+        'https://ublockorigin.github.io/uAssets/filters/quick-fixes.min.txt',
         'https://ublockorigin.github.io/uAssets/filters/ubol-filters.txt',
         'https://ublockorigin.github.io/uAssets/thirdparties/easylist.txt',
         'https://ublockorigin.github.io/uAssets/thirdparties/easyprivacy.txt',
@@ -1155,7 +1153,10 @@ async function main() {
         enabled: true,
         secret,
         urls: contentURLs,
+        dnrURL: 'https://ublockorigin.github.io/uAssets/dnr/default.json',
         homeURL: 'https://github.com/uBlockOrigin/uAssets',
+        filters: [
+        ],
     });
 
     // Regional rulesets
@@ -1206,7 +1207,6 @@ async function main() {
     for ( const id of handpicked ) {
         const asset = assets[id];
         if ( asset.content !== 'filters' ) { continue; }
-
         const contentURL = Array.isArray(asset.contentURL)
             ? asset.contentURL[0]
             : asset.contentURL;
@@ -1234,51 +1234,51 @@ async function main() {
     });
     await rulesetFromURLs({
         id: 'annoyances-overlays',
-        name: 'AdGuard/uBO – Overlays',
+        name: 'EasyList/uBO – Overlay Notices',
         group: 'annoyances',
         enabled: false,
         secret,
         urls: [
-            'https://filters.adtidy.org/extension/ublock/filters/19.txt',
+            'https://ublockorigin.github.io/uAssets/thirdparties/easylist-newsletters.txt',
             'https://ublockorigin.github.io/uAssets/filters/annoyances-others.txt',
         ],
-        homeURL: 'https://github.com/AdguardTeam/AdguardFilters#adguard-filters',
+        homeURL: 'https://github.com/easylist/easylist#fanboy-lists',
     });
     await rulesetFromURLs({
         id: 'annoyances-social',
-        name: 'AdGuard – Social Media',
+        name: 'EasyList – Social Widgets',
         group: 'annoyances',
         enabled: false,
         urls: [
-            'https://filters.adtidy.org/extension/ublock/filters/4.txt',
+            'https://ublockorigin.github.io/uAssets/thirdparties/easylist-social.txt',
         ],
-        homeURL: 'https://github.com/AdguardTeam/AdguardFilters#adguard-filters',
+        homeURL: 'https://github.com/easylist/easylist#fanboy-lists',
     });
     await rulesetFromURLs({
         id: 'annoyances-widgets',
-        name: 'AdGuard – Widgets',
+        name: 'EasyList – Chat Widgets',
         group: 'annoyances',
         enabled: false,
         urls: [
-            'https://filters.adtidy.org/extension/ublock/filters/22.txt',
+            'https://ublockorigin.github.io/uAssets/thirdparties/easylist-chat.txt',
         ],
-        homeURL: 'https://github.com/AdguardTeam/AdguardFilters#adguard-filters',
+        homeURL: 'https://github.com/easylist/easylist#fanboy-lists',
     });
     await rulesetFromURLs({
         id: 'annoyances-others',
-        name: 'AdGuard – Other Annoyances',
+        name: 'EasyList – Other Annoyances',
         group: 'annoyances',
         enabled: false,
         urls: [
-            'https://filters.adtidy.org/extension/ublock/filters/21.txt',
+            'https://ublockorigin.github.io/uAssets/thirdparties/easylist-annoyances.txt'
         ],
-        homeURL: 'https://github.com/AdguardTeam/AdguardFilters#adguard-filters',
+        homeURL: 'https://github.com/easylist/easylist#fanboy-lists',
     });
 
     // Handpicked rulesets from abroad
     await rulesetFromURLs({
         id: 'stevenblack-hosts',
-        name: 'Steven Black\'s hosts file',
+        name: 'Steven Black’s Unified Hosts (adware + malware)',
         enabled: false,
         urls: [ 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts' ],
         homeURL: 'https://github.com/StevenBlack/hosts#readme',

@@ -96,7 +96,7 @@
     "description": "Link text to uBO's own filter lists repo"
   },
   "aboutDependencies": {
-    "message": "外部依存関係 (GPLv3 と両立):",
+    "message": "外部依存関係 (GPLv3 互換):",
     "description": "Shown in the About pane"
   },
   "firstRunSectionLabel": {
@@ -147,12 +147,20 @@
     "message": "フィルタリングを行わないホスト名のリスト",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[ホスト名のみ]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "動作",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "フィルタリングモード変更時にページを自動再読み込みする",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "ブロックしたリクエストの数をツールバーのアイコンに表示",
     "description": "Label for a checkbox in the options page"
   }
 }

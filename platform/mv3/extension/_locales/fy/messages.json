@@ -147,12 +147,20 @@
     "message": "List fan hostnammen wêrfoar gjin filtering plakfynt.",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[allinnich hostnammen]\nexample.com\ngames.example\n…",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Gedrach",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Side automatysk fernije by wizigjen fan filtermodus",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "It tal blokkearre oanfragen op it arkbalkepiktogram toane",
     "description": "Label for a checkbox in the options page"
   }
 }

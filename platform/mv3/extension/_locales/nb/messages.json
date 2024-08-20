@@ -147,12 +147,20 @@
     "message": "Liste over vertsnavn der ingen filtrering vil finne sted",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[hostnames only]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Virkemåte",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Automatisk last side på nytt ved endring av filtreringsmodus",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Vis antall blokkerte forespørsler på verktøylinjeikonet",
     "description": "Label for a checkbox in the options page"
   }
 }

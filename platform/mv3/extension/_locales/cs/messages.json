@@ -4,7 +4,7 @@
     "description": "extension name."
   },
   "extShortDesc": {
-    "message": "Experimentální blokátor obsahu vyžadující méně oprávnění. Blokuje reklamy, sledovače, těžaře a jiné ihned po instalaci.",
+    "message": "Blokátor obsahu vyžadující méně oprávnění. Blokuje reklamy, sledovače, těžaře a jiné ihned po instalaci.",
     "description": "this will be in the Chrome web store: must be 132 characters or less"
   },
   "perRulesetStats": {
@@ -80,7 +80,7 @@
     "description": "English: Source code (GPLv3)"
   },
   "aboutContributors": {
-    "message": "Přispívající",
+    "message": "Přispěvatelé",
     "description": "English: Contributors"
   },
   "aboutSourceCode": {
@@ -147,12 +147,20 @@
     "message": "Seznam názvů hostitelů, pro které nebude probíhat žádné filtrování",
     "description": "A short description for the editable field which lists trusted sites"
   },
+  "noFilteringModePlaceholder": {
+    "message": "[pouze názvy hostitelů]\nexample.com\ngames.example\n...",
+    "description": "Default text for in edit field"
+  },
   "behaviorSectionLabel": {
     "message": "Chování",
     "description": "The header text for the 'Behavior' section"
   },
   "autoReloadLabel": {
     "message": "Automaticky znovu načíst stránku při změně filtrovacího režimu",
+    "description": "Label for a checkbox in the options page"
+  },
+  "showBlockedCountLabel": {
+    "message": "Zobrazit počet blokovaných požadavků u ikony v panelu nástrojů",
     "description": "Label for a checkbox in the options page"
   }
 }
